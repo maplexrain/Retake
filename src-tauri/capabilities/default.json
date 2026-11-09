@@ -1,0 +1,19 @@
+{
+  "identifier": "default",
+  "description": "Retake 默认权限：核心 API + 对话框 + 打开文件/文件夹 + 自定义标题栏窗口操作",
+  "windows": ["main", "selector", "countdown", "hud"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-set-size",
+    "dialog:default",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "**" }]
+    }
+  ]
+}

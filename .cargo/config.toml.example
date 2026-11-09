@@ -1,0 +1,4 @@
+# Local Machine Configuration Example
+# If git-bash's /usr/bin/link.exe shadows the MSVC linker, specify the path to MSVC link.exe:
+# [target.x86_64-pc-windows-msvc]
+# linker = "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/.../bin/Hostx64/x64/link.exe"

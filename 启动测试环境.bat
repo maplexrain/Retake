@@ -1,0 +1,49 @@
+@echo off
+setlocal
+title Retake 开发测试环境
+cd /d "%~dp0"
+
+rem ---- 本机工具链 PATH（Rust、ffmpeg；node/npm 已在系统 PATH）----
+set "PATH=%USERPROFILE%\.cargo\bin;D:\ffmpeg\bin;%PATH%"
+
+where cargo >nul 2>nul
+if errorlevel 1 (
+  echo [错误] 未找到 cargo，请先安装 Rust。
+  pause
+  exit /b 1
+)
+where npm >nul 2>nul
+if errorlevel 1 (
+  echo [错误] 未找到 npm，请先安装 Node.js。
+  pause
+  exit /b 1
+)
+where ffmpeg >nul 2>nul
+if errorlevel 1 (
+  echo [警告] PATH 中未找到 ffmpeg，应用内会有提示。
+) else (
+  echo [OK] ffmpeg 已就绪
+)
+
+if not exist node_modules (
+  echo [首次运行] 正在安装前端依赖，请稍候...
+  call npm install --no-audit --no-fund
+  if errorlevel 1 (
+    echo [错误] 依赖安装失败
+    pause
+    exit /b 1
+  )
+)
+
+echo.
+echo 正在启动 Retake 开发环境...
+rem ---- 清理上次会话遗留进程（孤儿 vite 占 5173 端口、残留应用实例），避免端口冲突 ----
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Get-Process retake -ErrorAction SilentlyContinue | Where-Object { $_.Path -like 'E:\retake\*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>nul
+echo 首次编译约需数分钟，之后为增量编译；启动后会出现应用窗口。
+echo 快捷键： Alt+1 开始/完成录制    Alt+2 暂停/恢复录制    Alt+3 取消录制
+echo.
+call npm run tauri dev
+
+echo.
+echo [已退出] 如上方有报错信息，请截图反馈。
+pause
