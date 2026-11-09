@@ -83,6 +83,15 @@ input, select { font: inherit; }
   font-size: 13px;
   letter-spacing: 0.4px;
 }
+.brand-logo-img {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: block;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
 .brand-dot-halo {
   width: 14px;
   height: 14px;

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128.png" alt="Retake Logo" width="96" height="96" />
+  <img src="src/assets/logo.svg" alt="Retake Logo" width="128" height="128" />
 </p>
 
 <h1 align="center">Retake</h1>

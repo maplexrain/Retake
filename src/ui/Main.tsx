@@ -7,6 +7,7 @@ import { api } from '../api'
 import type { Bootstrap, MonitorInfo, PhaseView, Project, Recording, Region, Settings } from '../api'
 import { clamp, fmtDur } from '../fmt'
 import { useI18n, type I18nKey } from '../i18n'
+import logoSvg from '../assets/logo.svg'
 import {
   ChevronDownIcon, ChevronRightIcon, CropIcon,
   FolderIcon, GearIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MouseIcon,
@@ -219,9 +220,7 @@ export default function Main() {
       {/* Sleek Custom Titlebar */}
       <header className="titlebar">
         <div className="brand" data-tauri-drag-region>
-          <div className="brand-dot-halo">
-            <span className={`brand-dot ${recording ? 'pulsing' : ''}`} />
-          </div>
+          <img src={logoSvg} alt="Retake" className="brand-logo-img" data-tauri-drag-region />
           <span className="brand-name" data-tauri-drag-region>Retake</span>
           <span className="brand-badge" data-tauri-drag-region>{t('brand.badge')}</span>
         </div>
