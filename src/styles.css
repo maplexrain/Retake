@@ -2109,6 +2109,37 @@ input, select { font: inherit; }
   border-color: var(--border);
   background: #111827;
 }
+.windows-picker-btn.has-target {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.05);
+}
+.windows-target-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+.windows-desc-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 230px;
+}
+.window-selected-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.16);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: auto;
+}
 .windows-picker-btn-left {
   display: flex;
   align-items: center;

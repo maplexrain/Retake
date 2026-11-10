@@ -5,6 +5,7 @@ mod project;
 mod recorder;
 mod sysaudio;
 mod win;
+mod window_capture;
 
 use ffmpeg_util::FfmpegInfo;
 use project::{Project, Recording, Region};
@@ -256,7 +257,15 @@ async fn list_monitors(app: AppHandle) -> Result<Vec<MonitorInfo>, String> {
 /// Spawn a new recording segment (video + optional system audio WAV)
 fn spawn_part(ses: &mut Session) -> Result<(), String> {
     let part = ses.out_base.with_extension(format!("p{:02}.mp4", ses.parts.len()));
-    let handle = ffmpeg_util::spawn_capture(&ses.settings, &part, Some(&ses.capture_rect))?;
+    let handle = if ses.settings.capture_mode == "window" {
+        if let Some(hwnd) = ses.settings.window_hwnd {
+            window_capture::spawn_window_capture(&ses.settings, &part, hwnd)?
+        } else {
+            return Err("未指定要录制的目标应用窗口".into());
+        }
+    } else {
+        ffmpeg_util::spawn_capture(&ses.settings, &part, Some(&ses.capture_rect))?
+    };
     ses.cur = Some(handle);
     ses.resumed_at = Some(Instant::now());
     if ses.has_sys {
@@ -272,7 +281,14 @@ fn spawn_part(ses: &mut Session) -> Result<(), String> {
 /// Finish current segment (retain files for final concatenation)
 fn finish_part(ses: &mut Session, timeout_ms: u64) -> Result<(), String> {
     if let Some(mut h) = ses.cur.take() {
-        ffmpeg_util::finish(&mut h.child, &mut h.stdin, &h.tail, timeout_ms);
+        ffmpeg_util::finish(
+            &mut h.child,
+            &mut h.stdin,
+            &h.tail,
+            timeout_ms,
+            h.stop_signal.as_ref(),
+            &mut h.worker_thread,
+        );
         let size = std::fs::metadata(&h.out).map(|m| m.len()).unwrap_or(0);
         if !h.out.exists() || size == 0 {
             let tail = h.tail.lock().unwrap().clone();
@@ -477,14 +493,25 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
         let cfg = project.settings.ffmpeg_path.as_deref().unwrap_or("(not set)");
         return Err(format!("ffmpeg not found (current configured path: {cfg}). Please specify in settings, e.g. D:\\ffmpeg\\bin\\ffmpeg.exe"));
     }
-    // Capture scope: custom region takes precedence, then selected monitor
-    let capture_rect = match (&project.settings.region, project.settings.monitor) {
-        (Some(r), _) => r.clone(),
-        (None, Some(idx)) => {
-            monitor_rect(app, idx).ok_or("Selected monitor does not exist, please re-select in Recording Scope")?
+    // Capture scope: window mode, or region, or monitor
+    let capture_rect = if project.settings.capture_mode == "window" {
+        if let Some(hwnd) = project.settings.window_hwnd {
+            let (w, h) = window_capture::get_window_client_or_frame_size(hwnd)
+                .ok_or("所选目标应用窗口已关闭或不可用，请重新选择窗口")?;
+            let bounds = win::get_window_bounds(hwnd).unwrap_or((0, 0, w, h));
+            Region { x: bounds.0, y: bounds.1, w, h }
+        } else {
+            return Err("请先选择要录制的目标应用窗口".into());
         }
-        (None, None) => {
-            return Err("Please select a recording scope: choose a monitor or select a region".into());
+    } else {
+        match (&project.settings.region, project.settings.monitor) {
+            (Some(r), _) => r.clone(),
+            (None, Some(idx)) => {
+                monitor_rect(app, idx).ok_or("Selected monitor does not exist, please re-select in Recording Scope")?
+            }
+            (None, None) => {
+                return Err("Please select a recording scope: choose a monitor, window or select a region".into());
+            }
         }
     };
     let countdown = project.settings.countdown_sec.clamp(0, 10);
@@ -1190,6 +1217,11 @@ async fn list_app_windows() -> Result<Vec<win::AppWindowInfo>, String> {
 }
 
 #[tauri::command]
+async fn get_app_window_bounds(hwnd: isize) -> Result<Option<Region>, String> {
+    Ok(win::get_window_bounds(hwnd).map(|(x, y, w, h)| Region { x, y, w, h }))
+}
+
+#[tauri::command]
 async fn show_scope_preview(app: AppHandle, rect: Region) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("scope_preview") {
         let _ = w.close();
@@ -1480,6 +1512,7 @@ fn main() {
             open_manifest_file,
             validate_manifest_dir,
             list_app_windows,
+            get_app_window_bounds,
             show_scope_preview,
             close_scope_preview,
             get_scope_preview_info,

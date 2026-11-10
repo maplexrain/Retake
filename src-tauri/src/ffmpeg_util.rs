@@ -3,7 +3,9 @@ use serde::Serialize;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 #[derive(Serialize, Clone)]
 pub struct FfmpegInfo {
@@ -14,7 +16,7 @@ pub struct FfmpegInfo {
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-fn hide_console(cmd: &mut Command) {
+pub fn hide_console(cmd: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -117,6 +119,8 @@ pub struct CaptureHandle {
     pub tail: Arc<Mutex<String>>,
     pub out: std::path::PathBuf,
     pub file_name: String,
+    pub stop_signal: Option<Arc<AtomicBool>>,
+    pub worker_thread: Option<JoinHandle<()>>,
 }
 
 /// Spawn gdigrab desktop capture -> x264/aac -> mp4.
@@ -209,14 +213,35 @@ pub fn spawn_capture(settings: &Settings, out: &Path, rect: Option<&crate::proje
         });
     }
     let file_name = out.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok(CaptureHandle { child, stdin, tail, out: out.to_path_buf(), file_name })
+    Ok(CaptureHandle {
+        child,
+        stdin,
+        tail,
+        out: out.to_path_buf(),
+        file_name,
+        stop_signal: None,
+        worker_thread: None,
+    })
 }
 
-/// Gracefully stop ffmpeg by writing 'q' to stdin, fallback to kill after timeout. Returns parsed duration in seconds.
-pub fn finish(child: &mut Child, stdin: &mut Option<ChildStdin>, tail: &Arc<Mutex<String>>, timeout_ms: u64) -> f64 {
+/// Gracefully stop ffmpeg. If worker_thread is running, signal it to stop and wait. Returns parsed duration in seconds.
+pub fn finish(
+    child: &mut Child,
+    stdin: &mut Option<ChildStdin>,
+    tail: &Arc<Mutex<String>>,
+    timeout_ms: u64,
+    stop_signal: Option<&Arc<AtomicBool>>,
+    worker_thread: &mut Option<JoinHandle<()>>,
+) -> f64 {
+    if let Some(stop) = stop_signal {
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if let Some(mut si) = stdin.take() {
         let _ = si.write_all(b"q");
         let _ = si.flush();
+    }
+    if let Some(worker) = worker_thread.take() {
+        let _ = worker.join();
     }
     let start = std::time::Instant::now();
     loop {

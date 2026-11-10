@@ -17,6 +17,9 @@ export interface Settings {
   countdownSec: number
   captureCursor: boolean
   systemAudio: boolean
+  captureMode?: 'display' | 'region' | 'window'
+  windowHwnd?: number | null
+  windowTitle?: string | null
   recordAppWindows: boolean
   excludeSelf?: boolean
 }
@@ -140,6 +143,7 @@ export const api = {
   listMics: (path: string | null) => invoke<string[]>('list_mics', { path }),
   listMonitors: () => invoke<MonitorInfo[]>('list_monitors'),
   listAppWindows: () => invoke<AppWindowInfo[]>('list_app_windows'),
+  getAppWindowBounds: (hwnd: number) => invoke<Region | null>('get_app_window_bounds', { hwnd }),
   showScopePreview: (rect: Region) => invoke<void>('show_scope_preview', { rect }),
   closeScopePreview: () => invoke<void>('close_scope_preview'),
   getScopePreviewInfo: () => invoke<ScopePreviewInfo | null>('get_scope_preview_info'),
