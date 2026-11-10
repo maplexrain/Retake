@@ -297,13 +297,14 @@ input, select { font: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 18px;
+  min-height: 24px;
 }
 .col-title {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 .col-tag {
   font-size: 11.5px;
@@ -832,6 +833,13 @@ input, select { font: inherit; }
 .ghost-icon-btn:hover {
   background: rgba(255, 255, 255, 0.09);
   color: var(--text);
+}
+.ghost-icon-btn.danger {
+  color: #f87171;
+}
+.ghost-icon-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
 }
 .setting-label-with-status {
   display: flex;
@@ -2017,13 +2025,11 @@ input, select { font: inherit; }
   border: 1px solid var(--border-soft);
 }
 .scope-mode-tab {
+  width: 24px;
   height: 22px;
-  padding: 0 7px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11.5px;
-  font-weight: 500;
+  padding: 0;
+  display: grid;
+  place-items: center;
   color: var(--text-secondary);
   border: none;
   background: transparent;
@@ -2033,12 +2039,12 @@ input, select { font: inherit; }
 }
 .scope-mode-tab:hover {
   color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
 }
 .scope-mode-tab.active {
   background: var(--panel-input);
   color: var(--accent);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .windows-scope-picker {
@@ -2238,20 +2244,6 @@ input, select { font: inherit; }
 }
 
 /* App Window Recording Toggle */
-.app-window-switch-item {
-  align-items: flex-start;
-}
-.switch-text-container {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.switch-hint-desc {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.35;
-  max-width: 380px;
-}
 
 /* ==========================================================================
    Scope Preview Overlay (ScopePreview.tsx)

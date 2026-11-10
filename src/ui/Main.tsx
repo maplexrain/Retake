@@ -603,8 +603,7 @@ export default function Main() {
                   }}
                   title={t('scope.modeDisplay')}
                 >
-                  <MonitorIcon size={12} />
-                  <span>{t('scope.modeDisplay')}</span>
+                  <MonitorIcon size={13} />
                 </button>
                 <button
                   className={`scope-mode-tab ${scopeMode === 'windows' ? 'active' : ''}`}
@@ -615,8 +614,7 @@ export default function Main() {
                   }}
                   title={t('scope.modeWindows')}
                 >
-                  <WindowIcon size={12} />
-                  <span>{t('scope.modeWindows')}</span>
+                  <WindowIcon size={13} />
                 </button>
                 <button
                   className={`scope-mode-tab ${scopeMode === 'region' ? 'active' : ''}`}
@@ -627,8 +625,7 @@ export default function Main() {
                   }}
                   title={t('scope.modeRegion')}
                 >
-                  <CropIcon size={12} />
-                  <span>{t('scope.modeRegion')}</span>
+                  <CropIcon size={13} />
                 </button>
               </div>
             </div>
@@ -741,20 +738,21 @@ export default function Main() {
                   </span>
                   <div className="scope-btn-group">
                     <button
-                      className="ghost-btn"
+                      className="ghost-icon-btn"
                       onClick={startRegion}
                       disabled={counting || recording}
+                      title={t('scope.cropHint')}
                     >
-                      <CropIcon size={12} />
-                      <span>{t('scope.crop')}</span>
+                      <CropIcon size={13} />
                     </button>
                     {s.region && (
                       <button
-                        className="ghost-btn danger"
+                        className="ghost-icon-btn danger"
                         onClick={clearRegion}
                         disabled={recording}
+                        title={t('scope.clear')}
                       >
-                        {t('scope.clear')}
+                        <TrashIcon size={13} />
                       </button>
                     )}
                   </div>
@@ -770,13 +768,12 @@ export default function Main() {
 
                 <div className="scope-btn-group">
                   <button
-                    className={`ghost-btn scope-preview-btn ${isPreviewingScope ? 'active' : ''}`}
+                    className={`ghost-icon-btn scope-preview-btn ${isPreviewingScope ? 'active' : ''}`}
                     onClick={handleToggleScopePreview}
                     disabled={counting || recording || !effRect}
-                    title={t('scope.previewHint')}
+                    title={isPreviewingScope ? t('scope.previewingScope') : t('scope.previewScope')}
                   >
-                    <EyeIcon size={12} />
-                    <span>{isPreviewingScope ? t('scope.previewingScope') : t('scope.previewScope')}</span>
+                    <EyeIcon size={13} />
                   </button>
                 </div>
               </div>
@@ -788,13 +785,12 @@ export default function Main() {
             <div className="col-head">
               <span className="col-title">{t('audio.title')}</span>
               <button
-                className="ghost-link"
+                className="ghost-icon-btn"
                 onClick={refreshMics}
                 disabled={recording}
                 title={t('audio.refreshHint')}
               >
-                <RefreshIcon size={11} />
-                <span>{t('audio.refresh')}</span>
+                <RefreshIcon size={13} />
               </button>
             </div>
 
@@ -1019,15 +1015,14 @@ export default function Main() {
                   <span className="manifest-subtitle">{project?.manifestDir}</span>
                 </div>
                 <div className="manifest-toolbar-btns">
-                  <button className="ghost-btn" onClick={handleAddClip}>
-                    <PlusIcon size={12} />
-                    <span>{t('manifest.addItem')}</span>
+                  <button className="ghost-icon-btn" onClick={handleAddClip} title={t('manifest.addItem')}>
+                    <PlusIcon size={13} />
                   </button>
-                  <button className="ghost-btn" onClick={handleOpenManifestJson} title="retake_manifest.json">
-                    <span>{t('manifest.openJson')}</span>
+                  <button className="ghost-icon-btn" onClick={handleOpenManifestJson} title={`${t('manifest.openJson')} (retake_manifest.json)`}>
+                    <FolderIcon size={13} />
                   </button>
                   <button className="ghost-icon-btn" onClick={() => reloadManifest()} title={t('manifest.reload')}>
-                    <RefreshIcon size={12} />
+                    <RefreshIcon size={13} />
                   </button>
                 </div>
               </div>
@@ -1044,8 +1039,8 @@ export default function Main() {
                       <span className="active-banner-warn">{t('manifest.willOverwrite')}</span>
                     )}
                   </div>
-                  <button className="ghost-btn danger small" onClick={handleClearTarget}>
-                    {t('manifest.clearTarget')}
+                  <button className="ghost-icon-btn danger" onClick={handleClearTarget} title={t('manifest.clearTarget')}>
+                    <XIcon size={13} />
                   </button>
                 </div>
               )}
@@ -1237,11 +1232,8 @@ export default function Main() {
                     />
                   </div>
 
-                  <div className="inline-switch-item app-window-switch-item">
-                    <div className="switch-text-container">
-                      <span className="switch-text">{t('settings.recordAppWindows')}</span>
-                      <span className="switch-hint-desc">{t('settings.recordAppWindowsHint')}</span>
-                    </div>
+                  <div className="inline-switch-item" title={t('settings.recordAppWindowsHint')}>
+                    <span className="switch-text">{t('settings.recordAppWindows')}</span>
                     <Switch
                       checked={!!s.recordAppWindows}
                       disabled={recording || counting}
@@ -1279,9 +1271,8 @@ export default function Main() {
                       placeholder={t('settings.ffmpegPlaceholder')}
                       onChange={e => patchSettings({ ffmpegPath: e.target.value || null })}
                     />
-                    <button className="ghost-btn" onClick={recheck} title={t('settings.recheckHint')}>
-                      <RefreshIcon size={12} />
-                      <span>{t('settings.recheck')}</span>
+                    <button className="ghost-icon-btn" onClick={recheck} title={t('settings.recheckHint')}>
+                      <RefreshIcon size={13} />
                     </button>
                   </div>
                 </div>
@@ -1355,9 +1346,6 @@ function AudioVisualizer({
         <i className={`viz-bar ${getClass(b2)}`} style={{ height: `${b2}%` }} />
         <i className={`viz-bar ${getClass(b3)}`} style={{ height: `${b3}%` }} />
         <i className={`viz-bar ${getClass(b4)}`} style={{ height: `${b4}%` }} />
-      </span>
-      <span className={`viz-tag ${isHearing ? 'hearing' : ''}`}>
-        {isHearing ? t('audio.hearing') : t('audio.silent')}
       </span>
     </div>
   )
