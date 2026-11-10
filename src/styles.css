@@ -275,6 +275,8 @@ input, select { font: inherit; }
 }
 
 .deck-grid {
+  position: relative;
+  z-index: 60;
   display: grid;
   grid-template-columns: minmax(170px, 1.15fr) minmax(240px, 1.45fr) 120px;
   align-items: stretch;
@@ -283,11 +285,27 @@ input, select { font: inherit; }
 
 /* Deck Columns (Hairline vertical separators without nested cards) */
 .deck-col {
+  position: relative;
   padding: 10px 14px 11px 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 8px;
+}
+.deck-col.scope-col {
+  z-index: 10;
+}
+.deck-col.scope-col.has-active-popover {
+  z-index: 100;
+}
+.deck-col.audio-col {
+  z-index: 9;
+}
+.deck-col.audio-col:focus-within {
+  z-index: 100;
+}
+.deck-col.hero-col {
+  z-index: 1;
 }
 .deck-col + .deck-col {
   border-left: 1px solid var(--border-hairline);
@@ -685,8 +703,15 @@ input, select { font: inherit; }
 
 /* ================= Collapsible Settings Drawer ================= */
 .drawer-section {
+  position: relative;
   display: flex;
   flex-direction: column;
+}
+.drawer-section.manifest-drawer {
+  z-index: 20;
+}
+.drawer-section.settings-drawer {
+  z-index: 10;
 }
 .drawer-toggle-bar {
   display: flex;
@@ -856,6 +881,8 @@ input, select { font: inherit; }
 
 /* ================= Bottom Footer Status Bar ================= */
 .deck-foot {
+  position: relative;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1879,6 +1906,9 @@ input, select { font: inherit; }
   position: relative;
   width: 100%;
 }
+.custom-select-container.open {
+  z-index: 200;
+}
 .custom-select-trigger {
   width: 100%;
   height: 34px;
@@ -1949,12 +1979,17 @@ input, select { font: inherit; }
   right: 0;
   max-height: 240px;
   overflow-y: auto;
-  background: #0b0f19;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #0d1322;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: var(--radius-sm);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75);
-  z-index: 9999;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  z-index: 1000;
   padding: 4px;
+}
+.custom-select-menu.open-upward {
+  top: auto;
+  bottom: calc(100% + 4px);
+  box-shadow: 0 -16px 36px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 .custom-select-item {
   padding: 7px 10px;
@@ -2051,6 +2086,9 @@ input, select { font: inherit; }
   position: relative;
   width: 100%;
 }
+.windows-scope-picker.open {
+  z-index: 200;
+}
 .windows-picker-btn {
   width: 100%;
   height: 34px;
@@ -2090,15 +2128,16 @@ input, select { font: inherit; }
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  right: 0;
+  width: 360px;
+  max-width: calc(100vw - 28px);
   max-height: 290px;
   display: flex;
   flex-direction: column;
-  background: #0b0f19;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #0d1322;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--radius-sm);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.8);
-  z-index: 9999;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  z-index: 1000;
   padding: 8px;
 }
 .windows-popover-head {

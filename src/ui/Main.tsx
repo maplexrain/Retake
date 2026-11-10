@@ -46,8 +46,33 @@ export default function Main() {
   const [showWindowsDrawer, setShowWindowsDrawer] = useState(false)
   const [windowSearch, setWindowSearch] = useState('')
   const [isPreviewingScope, setIsPreviewingScope] = useState(false)
+  const [openDropdownCount, setOpenDropdownCount] = useState(0)
+  const windowsPickerRef = useRef<HTMLDivElement>(null)
   const toastSeq = useRef(0)
   const skipNextSave = useRef(false)
+
+  const handleDropdownOpenChange = (isOpen: boolean) => {
+    setOpenDropdownCount(n => isOpen ? n + 1 : Math.max(0, n - 1))
+  }
+
+  // Close windows popover on click outside or Escape
+  useEffect(() => {
+    if (!showWindowsDrawer) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (windowsPickerRef.current && !windowsPickerRef.current.contains(e.target as Node)) {
+        setShowWindowsDrawer(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowWindowsDrawer(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [showWindowsDrawer])
 
   const toast = (text: string, kind: Toast['kind'] = 'info') => {
     const id = ++toastSeq.current
@@ -196,7 +221,13 @@ export default function Main() {
         const appEl = document.querySelector('.app') as HTMLElement | null
         h = appEl ? appEl.scrollHeight : 230
       }
-      h = Math.max(200, Math.ceil(h))
+      let minH = 200
+      if (showWindowsDrawer) {
+        minH = Math.max(minH, 440)
+      } else if (openDropdownCount > 0) {
+        minH = Math.max(minH, 320)
+      }
+      h = Math.max(minH, Math.ceil(h))
       if (Math.abs(h - last) <= 1) return
       last = h
       void win.setSize(new LogicalSize(window.innerWidth, h))
@@ -208,7 +239,7 @@ export default function Main() {
       window.removeEventListener('resize', update)
       clearInterval(iv)
     }
-  }, [boot, showMore, showManifest, phase.phase, manifest])
+  }, [boot, showMore, showManifest, phase.phase, manifest, showWindowsDrawer, openDropdownCount])
 
   // ---- Derived Values ----
   const ffmpegOk = boot?.ffmpeg.found ?? false
@@ -588,7 +619,7 @@ export default function Main() {
       <main className="deck">
         <div className="deck-grid">
           {/* Section 1: Capture Scope */}
-          <section className="deck-col scope-col">
+          <section className={`deck-col scope-col ${showWindowsDrawer ? 'has-active-popover' : ''}`}>
             <div className="col-head">
               <span className="col-title">{t('scope.title')}</span>
               <div className="scope-mode-tabs">
@@ -636,13 +667,14 @@ export default function Main() {
                   value={s.monitor ?? 0}
                   options={monitorOptions}
                   onChange={v => pickMonitor(Number(v))}
+                  onOpenChange={handleDropdownOpenChange}
                   disabled={recording || counting}
                   placeholder={t('scope.selectMonitor')}
                 />
               )}
 
               {scopeMode === 'windows' && (
-                <div className="windows-scope-picker">
+                <div ref={windowsPickerRef} className={`windows-scope-picker ${showWindowsDrawer ? 'open' : ''}`}>
                   <button
                     className="windows-picker-btn"
                     onClick={() => {
@@ -803,6 +835,7 @@ export default function Main() {
                   value={s.mic ?? ''}
                   options={micOptions}
                   onChange={v => patchSettings({ mic: String(v) || null })}
+                  onOpenChange={handleDropdownOpenChange}
                   disabled={!s.mic || recording || counting}
                   placeholder={mics.length ? t('audio.selectMic') : t('audio.noMic')}
                 />

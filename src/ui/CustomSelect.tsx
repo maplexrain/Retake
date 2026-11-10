@@ -14,6 +14,7 @@ interface CustomSelectProps<T = string | number> {
   value: T
   options: SelectOption<T>[]
   onChange: (value: T) => void
+  onOpenChange?: (isOpen: boolean) => void
   placeholder?: string
   disabled?: boolean
   className?: string
@@ -25,6 +26,7 @@ export function CustomSelect<T = string | number>({
   value,
   options,
   onChange,
+  onOpenChange,
   placeholder,
   disabled,
   className = '',
@@ -32,12 +34,30 @@ export function CustomSelect<T = string | number>({
   icon,
 }: CustomSelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false)
+  const [openUpward, setOpenUpward] = useState(false)
+  const [maxMenuHeight, setMaxMenuHeight] = useState<number | undefined>(undefined)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const selectedOption = options.find(o => o.value === value)
 
   useEffect(() => {
+    onOpenChange?.(isOpen)
     if (!isOpen) return
+
+    // Auto-detect upward vs downward opening based on viewport space
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom - 10
+      const spaceAbove = rect.top - 10
+      if (spaceBelow < 170 && spaceAbove > spaceBelow) {
+        setOpenUpward(true)
+        setMaxMenuHeight(Math.min(240, Math.max(90, Math.floor(spaceAbove))))
+      } else {
+        setOpenUpward(false)
+        setMaxMenuHeight(Math.min(240, Math.max(90, Math.floor(spaceBelow))))
+      }
+    }
+
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false)
@@ -52,7 +72,7 @@ export function CustomSelect<T = string | number>({
       document.removeEventListener('mousedown', handleClickOutside)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen])
+  }, [isOpen, onOpenChange])
 
   return (
     <div
@@ -79,7 +99,10 @@ export function CustomSelect<T = string | number>({
       </button>
 
       {isOpen && (
-        <div className={`custom-select-menu ${menuClassName}`}>
+        <div
+          className={`custom-select-menu ${openUpward ? 'open-upward' : ''} ${menuClassName}`}
+          style={maxMenuHeight ? { maxHeight: `${maxMenuHeight}px` } : undefined}
+        >
           {options.map((option, idx) => {
             const isSelected = option.value === value
             return (
