@@ -68,13 +68,16 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn phase_info(rec: &Recorder, active_target: Option<String>) -> PhaseInfo {
+fn phase_info(rec: &Recorder, active_target: Option<String>, manifest_mode: bool) -> PhaseInfo {
     let markers = rec.session.as_ref().map(|s| s.markers.clone()).unwrap_or_default();
-    let target_file_name = rec
-        .session
-        .as_ref()
-        .and_then(|s| s.target_file_name.clone())
-        .or(active_target);
+    let target_file_name = if manifest_mode {
+        rec.session
+            .as_ref()
+            .and_then(|s| s.target_file_name.clone())
+            .or(active_target)
+    } else {
+        None
+    };
     match (&rec.phase, &rec.session) {
         (Phase::Recording, Some(s)) => PhaseInfo {
             phase: "recording".into(),
@@ -111,7 +114,8 @@ fn emit_phase(app: &AppHandle) {
     let state = app.state::<AppState>();
     let rec = state.recorder.lock().unwrap();
     let active_target = state.active_target.lock().unwrap().clone();
-    let _ = app.emit("rec://phase", phase_info(&rec, active_target));
+    let manifest_mode = state.project.lock().unwrap().manifest_mode;
+    let _ = app.emit("rec://phase", phase_info(&rec, active_target, manifest_mode));
 }
 
 fn show_main(app: &AppHandle) {
@@ -198,7 +202,8 @@ async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
     let monitors = list_monitor_infos(&app);
     let output_dir = output_dir(&app)?.to_string_lossy().into_owned();
     let active_target = state.active_target.lock().unwrap().clone();
-    let phase = phase_info(&state.recorder.lock().unwrap(), active_target);
+    let manifest_mode = project.manifest_mode;
+    let phase = phase_info(&state.recorder.lock().unwrap(), active_target, manifest_mode);
     println!("[retake] bootstrap ffmpeg found={} path={:?}", ff.found, ff.path);
     Ok(Bootstrap {
         project,
@@ -513,13 +518,24 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
 
 fn start_recording_now(app: &AppHandle, capture_rect: Region) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let settings = {
-        let p = state.project.lock().unwrap();
-        p.settings.clone()
+    let p = state.project.lock().unwrap().clone();
+    let settings = p.settings.clone();
+    let is_manifest_mode = p.manifest_mode && p.manifest_dir.as_deref().map(|d| !d.trim().is_empty()).unwrap_or(false);
+    let dir = if is_manifest_mode {
+        let md = PathBuf::from(p.manifest_dir.as_ref().unwrap().trim());
+        if !md.exists() {
+            let _ = std::fs::create_dir_all(&md);
+        }
+        md
+    } else {
+        output_dir(app)?
     };
-    let dir = output_dir(app)?;
     let (target_file_name, fname, out_base) = {
-        let active = state.active_target.lock().unwrap().clone();
+        let active = if is_manifest_mode {
+            state.active_target.lock().unwrap().clone()
+        } else {
+            None
+        };
         if let Some(mut t) = active {
             t = t.trim().to_string();
             if !t.is_empty() {
@@ -577,12 +593,19 @@ fn start_recording_now(app: &AppHandle, capture_rect: Region) -> Result<(), Stri
 
 #[tauri::command]
 async fn record_start(app: AppHandle, target_filename: Option<String>) -> Result<(), String> {
-    if let Some(t) = target_filename {
-        *app.state::<AppState>().active_target.lock().unwrap() = if t.trim().is_empty() {
-            None
-        } else {
-            Some(t.trim().to_string())
-        };
+    let is_manifest_mode = {
+        app.state::<AppState>().project.lock().unwrap().manifest_mode
+    };
+    if is_manifest_mode {
+        if let Some(t) = target_filename {
+            *app.state::<AppState>().active_target.lock().unwrap() = if t.trim().is_empty() {
+                None
+            } else {
+                Some(t.trim().to_string())
+            };
+        }
+    } else {
+        *app.state::<AppState>().active_target.lock().unwrap() = None;
     }
     record_start_impl(&app)
 }
@@ -906,26 +929,112 @@ async fn get_hud_state(app: AppHandle) -> Result<PhaseInfo, String> {
     let state = app.state::<AppState>();
     let rec = state.recorder.lock().unwrap();
     let active_target = state.active_target.lock().unwrap().clone();
-    Ok(phase_info(&rec, active_target))
+    let manifest_mode = state.project.lock().unwrap().manifest_mode;
+    Ok(phase_info(&rec, active_target, manifest_mode))
 }
 
 // ---------------- Manifest Commands ----------------
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestDirValidation {
+    pub valid: bool,
+    pub has_manifest: bool,
+    pub file_count: usize,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+async fn validate_manifest_dir(dir: String) -> Result<ManifestDirValidation, String> {
+    let p = std::path::Path::new(&dir);
+    if !p.exists() {
+        return Ok(ManifestDirValidation {
+            valid: false,
+            has_manifest: false,
+            file_count: 0,
+            error: Some("Path does not exist".into()),
+        });
+    }
+    if !p.is_dir() {
+        return Ok(ManifestDirValidation {
+            valid: false,
+            has_manifest: false,
+            file_count: 0,
+            error: Some("Selected path is not a directory".into()),
+        });
+    }
+    let entries = match std::fs::read_dir(p) {
+        Ok(e) => e,
+        Err(err) => {
+            return Ok(ManifestDirValidation {
+                valid: false,
+                has_manifest: false,
+                file_count: 0,
+                error: Some(format!("Cannot read directory: {err}")),
+            });
+        }
+    };
+    let mut count = 0;
+    let mut has_manifest = false;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.eq_ignore_ascii_case(project::MANIFEST_FILENAME) {
+            has_manifest = true;
+        }
+        count += 1;
+    }
+    if has_manifest {
+        Ok(ManifestDirValidation {
+            valid: true,
+            has_manifest: true,
+            file_count: count,
+            error: None,
+        })
+    } else if count == 0 {
+        Ok(ManifestDirValidation {
+            valid: true,
+            has_manifest: false,
+            file_count: 0,
+            error: None,
+        })
+    } else {
+        Ok(ManifestDirValidation {
+            valid: false,
+            has_manifest: false,
+            file_count: count,
+            error: Some("The directory must either be empty or contain a retake_manifest.json file".into()),
+        })
+    }
+}
+
+fn resolve_manifest_dir(app: &AppHandle, dir: Option<String>) -> Result<std::path::PathBuf, String> {
+    if let Some(d) = dir {
+        if !d.trim().is_empty() {
+            return Ok(std::path::PathBuf::from(d.trim()));
+        }
+    }
+    let p = app.state::<AppState>().project.lock().unwrap().clone();
+    if let Some(md) = p.manifest_dir {
+        if !md.trim().is_empty() {
+            return Ok(std::path::PathBuf::from(md.trim()));
+        }
+    }
+    output_dir(app)
+}
+
 #[tauri::command]
 async fn load_manifest(app: AppHandle, dir: Option<String>) -> Result<Option<project::RecordingManifest>, String> {
-    let target_dir = match dir {
-        Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d),
-        _ => output_dir(&app)?,
-    };
+    let target_dir = resolve_manifest_dir(&app, dir)?;
     Ok(project::load_manifest_from_dir(&target_dir))
 }
 
 #[tauri::command]
 async fn save_manifest(app: AppHandle, manifest: project::RecordingManifest, dir: Option<String>) -> Result<(), String> {
-    let target_dir = match dir {
-        Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d),
-        _ => output_dir(&app)?,
-    };
+    let target_dir = resolve_manifest_dir(&app, dir)?;
+    if !target_dir.exists() {
+        let _ = std::fs::create_dir_all(&target_dir);
+    }
     project::save_manifest_to_dir(&target_dir, &manifest)
 }
 
@@ -943,10 +1052,10 @@ async fn set_active_manifest_target(app: AppHandle, target_filename: Option<Stri
 #[tauri::command]
 async fn open_manifest_file(app: AppHandle, dir: Option<String>) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    let target_dir = match dir {
-        Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d),
-        _ => output_dir(&app)?,
-    };
+    let target_dir = resolve_manifest_dir(&app, dir)?;
+    if !target_dir.exists() {
+        let _ = std::fs::create_dir_all(&target_dir);
+    }
     let file_path = target_dir.join(project::MANIFEST_FILENAME);
     if !file_path.exists() {
         let default_manifest = project::RecordingManifest {
@@ -1272,6 +1381,7 @@ fn main() {
             save_manifest,
             set_active_manifest_target,
             open_manifest_file,
+            validate_manifest_dir,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

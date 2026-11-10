@@ -23,6 +23,15 @@ export interface Settings {
 export interface Project {
   outputDir: string | null
   settings: Settings
+  manifestMode?: boolean
+  manifestDir?: string | null
+}
+
+export interface ManifestDirValidation {
+  valid: boolean
+  hasManifest: boolean
+  fileCount: number
+  error: string | null
 }
 
 export interface Recording {
@@ -103,6 +112,8 @@ export const api = {
     invoke<void>('set_active_manifest_target', { targetFilename: targetFilename ?? null }),
   openManifestFile: (dir?: string | null) =>
     invoke<void>('open_manifest_file', { dir: dir ?? null }),
+  validateManifestDir: (dir: string) =>
+    invoke<ManifestDirValidation>('validate_manifest_dir', { dir }),
   startRegionSelect: (monitorIndex: number | null) =>
     invoke<void>('start_region_select', { monitorIndex }),
   finishRegionSelect: (pick: { x: number; y: number; w: number; h: number } | null) =>

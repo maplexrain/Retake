@@ -30,7 +30,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   background: var(--bg);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13.5px;
   overflow: hidden;
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -47,7 +47,7 @@ input, select { font: inherit; }
   color: var(--text-secondary);
   text-align: center;
   padding: 40px 0;
-  font-size: 13px;
+  font-size: 14.5px;
   letter-spacing: 0.3px;
 }
 
@@ -68,7 +68,7 @@ input, select { font: inherit; }
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 38px;
+  height: 40px;
   padding: 0 4px 0 12px;
   flex: none;
   background: rgba(19, 22, 31, 0.92);
@@ -80,12 +80,12 @@ input, select { font: inherit; }
   align-items: center;
   gap: 6px;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14.5px;
   letter-spacing: 0.4px;
 }
 .brand-logo-img {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
   border-radius: 4px;
   object-fit: contain;
   flex-shrink: 0;
@@ -119,9 +119,9 @@ input, select { font: inherit; }
   font-weight: 700;
 }
 .brand-badge {
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 600;
-  padding: 1px 5px;
+  padding: 1px 6px;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 4px;
   color: var(--text-secondary);
@@ -136,9 +136,9 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 10px;
+  padding: 3px 11px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -157,7 +157,7 @@ input, select { font: inherit; }
 .res-tag {
   color: var(--muted);
   font-weight: 500;
-  font-size: 10.5px;
+  font-size: 12px;
   border-left: 1px solid rgba(16, 185, 129, 0.3);
   padding-left: 6px;
   margin-left: 2px;
@@ -197,13 +197,13 @@ input, select { font: inherit; }
   margin: 0 4px;
 }
 .lang-pill {
-  height: 22px;
-  padding: 0 7px;
+  height: 24px;
+  padding: 0 8px;
   border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.5px;
   color: var(--text-secondary);
@@ -255,7 +255,7 @@ input, select { font: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   background: rgba(255, 59, 71, 0.12);
   border-bottom: 1px solid rgba(255, 59, 71, 0.3);
   color: #fca5a5;
@@ -300,13 +300,13 @@ input, select { font: inherit; }
   height: 18px;
 }
 .col-title {
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--muted);
   letter-spacing: 0.5px;
 }
 .col-tag {
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 500;
   padding: 1px 6px;
   border-radius: 3px;
@@ -330,7 +330,7 @@ input, select { font: inherit; }
   border-radius: var(--radius-md);
   padding: 5px 8px;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: 13px;
   outline: none;
   transition: all 0.15s ease;
   cursor: pointer;
@@ -358,7 +358,7 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -375,9 +375,9 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 3px 8px;
+  padding: 4px 9px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.05);
   border: none;
@@ -400,7 +400,7 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--muted);
   background: none;
   border: none;
@@ -440,21 +440,21 @@ input, select { font: inherit; }
 .audio-select {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12.5px;
   padding: 3px 6px;
-  height: 24px;
+  height: 26px;
 }
 .audio-row-name {
   flex: 1;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
 }
 .audio-wasapi-tip {
-  font-size: 9px;
+  font-size: 10.5px;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.05);
   padding: 1px 4px;
@@ -499,7 +499,7 @@ input, select { font: inherit; }
   box-shadow: 0 0 6px var(--accent-glow);
 }
 .viz-tag {
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--muted);
   white-space: nowrap;
@@ -627,19 +627,19 @@ input, select { font: inherit; }
 }
 
 .hero-label {
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-secondary);
   text-align: center;
 }
 .live-dur {
   color: #ff8a92;
-  font-size: 12px;
+  font-size: 14.5px;
   font-variant-numeric: tabular-nums;
 }
 .paused-dur {
   color: #fcd34d;
-  font-size: 11px;
+  font-size: 12.5px;
 }
 .counting-label {
   color: #ffa39e;
@@ -657,9 +657,9 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 7px;
+  padding: 3px 8px;
   border-radius: var(--radius-sm);
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.05);
   border: none;
@@ -691,13 +691,13 @@ input, select { font: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 14px;
+  padding: 8px 14px;
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--border-hairline);
   cursor: pointer;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12.5px;
   transition: background 0.15s, color 0.15s;
 }
 .drawer-toggle-bar:hover {
@@ -718,7 +718,7 @@ input, select { font: inherit; }
   gap: 8px;
 }
 .toggle-hint {
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--muted);
   opacity: 0.8;
 }
@@ -746,7 +746,7 @@ input, select { font: inherit; }
   gap: 12px;
 }
 .setting-label {
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--text-secondary);
   font-weight: 500;
   flex-shrink: 0;
@@ -761,8 +761,8 @@ input, select { font: inherit; }
   gap: 1px;
 }
 .segmented-item {
-  padding: 3px 8px;
-  font-size: 10.5px;
+  padding: 4px 9px;
+  font-size: 12px;
   border-radius: 3px;
   color: var(--muted);
   background: transparent;
@@ -792,7 +792,7 @@ input, select { font: inherit; }
   gap: 8px;
 }
 .switch-text {
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--text-secondary);
 }
 
@@ -801,7 +801,7 @@ input, select { font: inherit; }
   align-items: center;
   gap: 4px;
   flex: 1;
-  max-width: 320px;
+  max-width: 340px;
 }
 .flat-input {
   flex: 1;
@@ -809,8 +809,8 @@ input, select { font: inherit; }
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: var(--radius-sm);
-  padding: 3px 7px;
-  font-size: 11px;
+  padding: 4px 8px;
+  font-size: 12.5px;
   color: var(--text);
   outline: none;
 }
@@ -818,8 +818,8 @@ input, select { font: inherit; }
   border-color: var(--blue);
 }
 .ghost-icon-btn {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   background: rgba(255, 255, 255, 0.04);
@@ -840,7 +840,7 @@ input, select { font: inherit; }
   flex-shrink: 0;
 }
 .status-tag {
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 .status-tag.ok { color: #86efac; }
@@ -851,8 +851,8 @@ input, select { font: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 14px 6px 14px;
-  font-size: 10.5px;
+  padding: 6px 14px 7px 14px;
+  font-size: 12px;
   color: var(--muted);
 }
 .foot-estimate {
@@ -872,7 +872,7 @@ input, select { font: inherit; }
   gap: 8px;
 }
 .shortcut-tag {
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--muted);
   opacity: 0.85;
 }
@@ -1311,7 +1311,7 @@ input, select { font: inherit; }
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 28px;
+  height: 30px;
   gap: 8px;
 }
 
@@ -1319,7 +1319,7 @@ input, select { font: inherit; }
   display: flex;
   align-items: center;
   font-family: ui-monospace, SFMono-Regular, "SF Pro Text", Consolas, monospace;
-  font-size: 15px;
+  font-size: 16.5px;
   font-weight: 700;
   color: #f8fafc;
   letter-spacing: 0.6px;
@@ -1337,10 +1337,10 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 25px;
-  padding: 0 7px;
+  height: 26px;
+  padding: 0 8px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1373,7 +1373,7 @@ input, select { font: inherit; }
 .hud-btn-icononly {
   background: rgba(255, 255, 255, 0.08);
   color: #e2e8f0;
-  width: 25px;
+  width: 26px;
   justify-content: center;
   padding: 0;
 }
@@ -1397,7 +1397,7 @@ input, select { font: inherit; }
 .hud-btn-cancel {
   background: transparent;
   color: #94a3b8;
-  width: 22px;
+  width: 24px;
   justify-content: center;
   padding: 0;
 }
@@ -1407,7 +1407,7 @@ input, select { font: inherit; }
 }
 
 .hud-btn-kbd {
-  font-size: 9px;
+  font-size: 10px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   background: rgba(0, 0, 0, 0.4);
   padding: 1px 4px;
@@ -1418,12 +1418,12 @@ input, select { font: inherit; }
 
 .hud-toast-banner {
   flex: 1;
-  height: 25px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   animation: hudFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1447,7 +1447,93 @@ input, select { font: inherit; }
   box-shadow: 0 0 12px rgba(249, 115, 22, 0.28);
 }
 
-/* ================= Recording Manifest Drawer ================= */
+/* ================= Manifest Mode Section & Drawer ================= */
+.manifest-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: transparent;
+  border-bottom: 1px solid var(--border-hairline);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  transition: background 0.15s;
+}
+.manifest-mode-bar:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.manifest-mode-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.manifest-mode-title {
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.3px;
+  font-size: 12.5px;
+}
+.manifest-dir-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+.manifest-dir-ico {
+  color: #38bdf8;
+}
+.manifest-dir-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.manifest-dir-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.manifest-dir-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #ffffff;
+}
+.manifest-mode-off-tag {
+  font-size: 11.5px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.manifest-mode-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toggle-hint-muted {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.drawer-arrow-btn {
+  width: 24px;
+  height: 24px;
+}
+
 .manifest-drawer-content {
   padding: 10px 14px;
   display: flex;
@@ -1459,14 +1545,14 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   color: #38bdf8;
   background: rgba(56, 189, 248, 0.12);
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 4px;
   border: 1px solid rgba(56, 189, 248, 0.28);
-  margin-left: 6px;
+  margin-left: 4px;
 }
 
 .manifest-toolbar {
@@ -1477,7 +1563,7 @@ input, select { font: inherit; }
 }
 
 .manifest-subtitle {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
@@ -1492,11 +1578,11 @@ input, select { font: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 10px;
+  padding: 8px 12px;
   background: rgba(56, 189, 248, 0.08);
   border: 1px solid rgba(56, 189, 248, 0.22);
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .active-banner-left {
@@ -1529,9 +1615,9 @@ input, select { font: inherit; }
 
 .active-banner-warn {
   color: #f59e0b;
-  font-size: 10px;
+  font-size: 11px;
   background: rgba(245, 158, 11, 0.12);
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 3px;
   margin-left: 4px;
 }
@@ -1551,8 +1637,8 @@ input, select { font: inherit; }
   display: grid;
   grid-template-columns: 50px 1.4fr 1.1fr 100px 65px;
   align-items: center;
-  padding: 6px 10px;
-  font-size: 10px;
+  padding: 7px 10px;
+  font-size: 11px;
   color: var(--muted);
   font-weight: 600;
   border-bottom: 1px solid var(--border-hairline);
@@ -1570,7 +1656,7 @@ input, select { font: inherit; }
   display: grid;
   grid-template-columns: 50px 1.4fr 1.1fr 100px 65px;
   align-items: center;
-  padding: 5px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border-hairline);
   transition: background 0.12s ease;
 }
@@ -1594,8 +1680,8 @@ input, select { font: inherit; }
 }
 
 .manifest-radio {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: transparent;
@@ -1625,7 +1711,7 @@ input, select { font: inherit; }
 }
 
 .row-num {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
@@ -1633,8 +1719,8 @@ input, select { font: inherit; }
 .td-title .inline-text,
 .td-file .inline-file {
   width: 100%;
-  padding: 3px 7px;
-  font-size: 11px;
+  padding: 4px 8px;
+  font-size: 12.5px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -1668,10 +1754,10 @@ input, select { font: inherit; }
 .manifest-badge {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
+  gap: 4px;
+  padding: 2px 7px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 500;
 }
 
@@ -1700,15 +1786,15 @@ input, select { font: inherit; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px 14px;
-  gap: 8px;
+  padding: 22px 14px;
+  gap: 10px;
   border: 1px dashed var(--border-hairline);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.08);
 }
 
 .empty-text {
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--muted);
   text-align: center;
 }
@@ -1718,12 +1804,12 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 8px;
+  padding: 3px 9px;
   border-radius: 999px;
   background: rgba(56, 189, 248, 0.1);
   border: 1px solid rgba(56, 189, 248, 0.3);
   color: #38bdf8;
-  font-size: 10px;
+  font-size: 11.5px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   cursor: pointer;
   margin-top: 4px;
@@ -1738,7 +1824,7 @@ input, select { font: inherit; }
 
 .hero-target-recorded {
   color: #6ee7b7;
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 /* Floating HUD Target Pill */
@@ -1746,22 +1832,22 @@ input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   color: #38bdf8;
   background: rgba(56, 189, 248, 0.14);
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 4px;
   border: 1px solid rgba(56, 189, 248, 0.32);
   margin-left: 8px;
-  max-width: 160px;
+  max-width: 170px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .hud-target-ico {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .hud-target-name {

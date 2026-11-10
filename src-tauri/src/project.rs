@@ -62,6 +62,8 @@ impl Default for Settings {
 pub struct Project {
     pub output_dir: Option<String>,
     pub settings: Settings,
+    pub manifest_mode: bool,
+    pub manifest_dir: Option<String>,
 }
 
 pub const MANIFEST_FILENAME: &str = "retake_manifest.json";

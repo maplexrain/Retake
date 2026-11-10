@@ -48,12 +48,16 @@ export default function Main() {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4600)
   }
 
-  const reloadManifest = async (dir?: string) => {
+  const reloadManifest = async (dir?: string | null) => {
     try {
-      const targetDir = dir ?? boot?.outputDir ?? null
+      const targetDir = dir ?? project?.manifestDir ?? null
+      if (!targetDir) {
+        setManifest(null)
+        return
+      }
       const mf = await api.loadManifest(targetDir)
       setManifest(mf)
-      if (mf?.activeItemId) {
+      if (project?.manifestMode && mf?.activeItemId) {
         const active = mf.items.find(i => i.id === mf.activeItemId)
         if (active) {
           api.setActiveManifestTarget(active.targetFileName).catch(() => {})
@@ -82,7 +86,11 @@ export default function Main() {
         setPhase(b.phase)
         setMics(b.mics)
         setMonitors(b.monitors)
-        reloadManifest(b.outputDir)
+        if (p.manifestMode && p.manifestDir) {
+          reloadManifest(p.manifestDir)
+        } else {
+          api.setActiveManifestTarget(null).catch(() => {})
+        }
       })
       .catch(e => toast(t('boot.initFailed', { err: String(e) }), 'err'))
   }, [])
@@ -120,7 +128,10 @@ export default function Main() {
           return item
         })
         const updated = { ...cur, items: nextItems }
-        api.saveManifest(updated, boot?.outputDir).catch(() => {})
+        const saveDir = project?.manifestMode && project?.manifestDir ? project.manifestDir : null
+        if (saveDir) {
+          api.saveManifest(updated, saveDir).catch(() => {})
+        }
         return updated
       })
     })
@@ -209,58 +220,100 @@ export default function Main() {
     return Math.max(1, Math.round((effRect.w * effRect.h * s.fps * bpp) / 8 * 60 / (1024 * 1024)))
   })()
 
-  // ---- Manifest & Target Clip ----
-  const activeClip = manifest?.items.find(i => i.id === manifest.activeItemId) ?? null
+  // ---- Manifest Mode & Target Clip ----
+  const manifestDir = project?.manifestDir || null
+  const manifestMode = !!project?.manifestMode && !!manifestDir
+  const activeClip = manifestMode && manifest ? manifest.items.find(i => i.id === manifest.activeItemId) ?? null : null
+
+  const handlePickManifestDir = async () => {
+    const dir = await pickFolderDialog({ directory: true, title: t('manifest.selectDir') })
+    if (typeof dir !== 'string' || !dir.trim()) return
+
+    try {
+      const val = await api.validateManifestDir(dir)
+      if (!val.valid) {
+        toast(t('manifest.dirInvalid'), 'err')
+        return
+      }
+
+      if (!val.hasManifest && val.fileCount === 0) {
+        const initial: RecordingManifest = {
+          version: 1,
+          title: 'Recording Manifest',
+          activeItemId: 'clip_01',
+          items: [
+            {
+              id: 'clip_01',
+              title: '01 Intro',
+              targetFileName: '01_intro.mp4',
+              status: 'pending',
+            },
+            {
+              id: 'clip_02',
+              title: '02 Content',
+              targetFileName: '02_content.mp4',
+              status: 'pending',
+            },
+          ],
+        }
+        await api.saveManifest(initial, dir)
+        setManifest(initial)
+        toast(t('manifest.dirEmptyCreated'), 'ok')
+      } else {
+        const mf = await api.loadManifest(dir)
+        setManifest(mf)
+        toast(t('manifest.dirLoaded', { count: mf?.items.length ?? 0 }), 'ok')
+      }
+
+      setProject(p => p ? { ...p, manifestMode: true, manifestDir: dir } : p)
+      setShowManifest(true)
+      toast(t('manifest.switchOnNotice'), 'ok')
+    } catch (e) {
+      toast(String(e), 'err')
+    }
+  }
+
+  const handleToggleManifestMode = async (enabled: boolean) => {
+    if (enabled) {
+      if (project?.manifestDir) {
+        const val = await api.validateManifestDir(project.manifestDir)
+        if (val.valid) {
+          setProject(p => p ? { ...p, manifestMode: true } : p)
+          await reloadManifest(project.manifestDir)
+          setShowManifest(true)
+          toast(t('manifest.switchOnNotice'), 'ok')
+          return
+        }
+      }
+      await handlePickManifestDir()
+    } else {
+      setProject(p => p ? { ...p, manifestMode: false } : p)
+      await api.setActiveManifestTarget(null).catch(() => {})
+      setShowManifest(false)
+      toast(t('manifest.switchOffNotice'), 'info')
+    }
+  }
 
   const handleSelectClip = async (item: ManifestItem) => {
-    if (!manifest) return
+    if (!manifest || !manifestDir) return
     const nextId = manifest.activeItemId === item.id ? null : item.id
     const updated = { ...manifest, activeItemId: nextId }
     setManifest(updated)
     const targetFile = nextId ? item.targetFileName : null
     await api.setActiveManifestTarget(targetFile).catch(() => {})
-    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
+    await api.saveManifest(updated, manifestDir).catch(() => {})
   }
 
   const handleClearTarget = async () => {
-    if (!manifest) return
+    if (!manifest || !manifestDir) return
     const updated = { ...manifest, activeItemId: null }
     setManifest(updated)
     await api.setActiveManifestTarget(null).catch(() => {})
-    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
-  }
-
-  const handleCreateManifest = async () => {
-    const initial: RecordingManifest = {
-      version: 1,
-      title: 'Recording Manifest',
-      activeItemId: 'clip_01',
-      items: [
-        {
-          id: 'clip_01',
-          title: '01 Intro',
-          targetFileName: '01_intro.mp4',
-          status: 'pending',
-        },
-        {
-          id: 'clip_02',
-          title: '02 Content',
-          targetFileName: '02_content.mp4',
-          status: 'pending',
-        },
-      ],
-    }
-    setManifest(initial)
-    await api.saveManifest(initial, boot?.outputDir).catch(() => {})
-    await api.setActiveManifestTarget('01_intro.mp4').catch(() => {})
-    setShowManifest(true)
+    await api.saveManifest(updated, manifestDir).catch(() => {})
   }
 
   const handleAddClip = async () => {
-    if (!manifest) {
-      await handleCreateManifest()
-      return
-    }
+    if (!manifest || !manifestDir) return
     const idx = manifest.items.length + 1
     const pad = idx < 10 ? `0${idx}` : `${idx}`
     const newItem: ManifestItem = {
@@ -271,11 +324,11 @@ export default function Main() {
     }
     const updated = { ...manifest, items: [...manifest.items, newItem] }
     setManifest(updated)
-    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
+    await api.saveManifest(updated, manifestDir).catch(() => {})
   }
 
   const handleDeleteClip = async (id: string) => {
-    if (!manifest) return
+    if (!manifest || !manifestDir) return
     const isTarget = manifest.activeItemId === id
     const nextItems = manifest.items.filter(i => i.id !== id)
     const updated = {
@@ -287,11 +340,11 @@ export default function Main() {
     if (isTarget) {
       await api.setActiveManifestTarget(null).catch(() => {})
     }
-    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
+    await api.saveManifest(updated, manifestDir).catch(() => {})
   }
 
   const handleUpdateClip = (id: string, patch: Partial<ManifestItem>) => {
-    if (!manifest) return
+    if (!manifest || !manifestDir) return
     const nextItems = manifest.items.map(i => {
       if (i.id === id) {
         return { ...i, ...patch }
@@ -300,14 +353,15 @@ export default function Main() {
     })
     const updated = { ...manifest, items: nextItems }
     setManifest(updated)
-    api.saveManifest(updated, boot?.outputDir).catch(() => {})
+    api.saveManifest(updated, manifestDir).catch(() => {})
     if (manifest.activeItemId === id && patch.targetFileName) {
       api.setActiveManifestTarget(patch.targetFileName).catch(() => {})
     }
   }
 
   const handleOpenManifestJson = () => {
-    api.openManifestFile(boot?.outputDir).catch(e => toast(String(e), 'err'))
+    if (!manifestDir) return
+    api.openManifestFile(manifestDir).catch(e => toast(String(e), 'err'))
   }
 
   // ---- User Actions ----
@@ -665,58 +719,91 @@ export default function Main() {
           </section>
         </div>
 
-        {/* Collapsible Manifest Drawer */}
+        {/* Manifest Recording Mode Section */}
         <div className="drawer-section manifest-drawer">
-          <button
-            className="drawer-toggle-bar"
-            onClick={() => setShowManifest(v => !v)}
-          >
-            <div className="toggle-bar-left">
-              <ListIcon size={12} className="gear-ico" />
-              <span>{t('manifest.title')}</span>
-              {activeClip && (
+          <div className="manifest-mode-bar">
+            <div className="manifest-mode-left">
+              <Switch
+                checked={!!manifestMode}
+                onChange={handleToggleManifestMode}
+                title={t('manifest.modeTitle')}
+              />
+              <span className="manifest-mode-title">{t('manifest.modeTitle')}</span>
+              {manifestMode && project?.manifestDir ? (
+                <div className="manifest-dir-pill" title={project.manifestDir}>
+                  <FolderIcon size={12} className="manifest-dir-ico" />
+                  <span className="manifest-dir-name">
+                    {project.manifestDir.split(/[\\/]/).filter(Boolean).pop() || project.manifestDir}
+                  </span>
+                  <button
+                    className="ghost-icon-btn small"
+                    title={t('manifest.changeDir')}
+                    onClick={handlePickManifestDir}
+                  >
+                    <RefreshIcon size={11} />
+                  </button>
+                  <button
+                    className="ghost-icon-btn small"
+                    title={t('settings.openDir')}
+                    onClick={() => openAny(project.manifestDir)}
+                  >
+                    <ChevronRightIcon size={11} />
+                  </button>
+                </div>
+              ) : (
+                <button className="manifest-dir-btn" onClick={handlePickManifestDir}>
+                  <FolderIcon size={12} />
+                  <span>{t('manifest.selectDir')}</span>
+                </button>
+              )}
+
+              {manifestMode && activeClip && (
                 <span className="manifest-target-tag" title={activeClip.targetFileName}>
                   🎯 {activeClip.targetFileName}
                 </span>
               )}
             </div>
-            <div className="toggle-bar-right">
-              <span className="toggle-hint">
-                {manifest && manifest.items.length > 0
-                  ? `${manifest.items.filter(i => i.status === 'recorded').length}/${manifest.items.length} ${t('manifest.statusRecorded')}`
-                  : t('manifest.empty')}
-              </span>
-              {showManifest ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
-            </div>
-          </button>
 
-          {showManifest && (
+            <div className="manifest-mode-right">
+              {manifestMode ? (
+                <>
+                  <span className="toggle-hint">
+                    {manifest && manifest.items.length > 0
+                      ? `${manifest.items.filter(i => i.status === 'recorded').length}/${manifest.items.length} ${t('manifest.statusRecorded')}`
+                      : t('manifest.empty')}
+                  </span>
+                  <button
+                    className="ghost-icon-btn drawer-arrow-btn"
+                    onClick={() => setShowManifest(v => !v)}
+                    title={showManifest ? 'Collapse' : 'Expand'}
+                  >
+                    {showManifest ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+                  </button>
+                </>
+              ) : (
+                <span className="toggle-hint-muted">{t('manifest.modeHint')}</span>
+              )}
+            </div>
+          </div>
+
+          {manifestMode && showManifest && (
             <div className="drawer-content manifest-drawer-content">
               {/* Manifest Top Toolbar */}
               <div className="manifest-toolbar">
                 <div className="manifest-toolbar-info">
-                  <span className="manifest-subtitle">{t('manifest.subtitle')}</span>
+                  <span className="manifest-subtitle">{project?.manifestDir}</span>
                 </div>
                 <div className="manifest-toolbar-btns">
-                  {manifest ? (
-                    <>
-                      <button className="ghost-btn" onClick={handleAddClip}>
-                        <PlusIcon size={12} />
-                        <span>{t('manifest.addItem')}</span>
-                      </button>
-                      <button className="ghost-btn" onClick={handleOpenManifestJson} title="retake_manifest.json">
-                        <span>{t('manifest.openJson')}</span>
-                      </button>
-                      <button className="ghost-icon-btn" onClick={() => reloadManifest()} title={t('manifest.reload')}>
-                        <RefreshIcon size={12} />
-                      </button>
-                    </>
-                  ) : (
-                    <button className="btn small accent-btn" onClick={handleCreateManifest}>
-                      <PlusIcon size={12} />
-                      <span>{t('manifest.createDefault')}</span>
-                    </button>
-                  )}
+                  <button className="ghost-btn" onClick={handleAddClip}>
+                    <PlusIcon size={12} />
+                    <span>{t('manifest.addItem')}</span>
+                  </button>
+                  <button className="ghost-btn" onClick={handleOpenManifestJson} title="retake_manifest.json">
+                    <span>{t('manifest.openJson')}</span>
+                  </button>
+                  <button className="ghost-icon-btn" onClick={() => reloadManifest()} title={t('manifest.reload')}>
+                    <RefreshIcon size={12} />
+                  </button>
                 </div>
               </div>
 
@@ -812,7 +899,7 @@ export default function Main() {
                               <button
                                 className="ghost-icon-btn"
                                 title={t('manifest.play')}
-                                onClick={() => openAny(boot.outputDir + '/' + item.targetFileName)}
+                                onClick={() => openAny(manifestDir + '/' + item.targetFileName)}
                               >
                                 <PlayIcon size={11} />
                               </button>
@@ -833,9 +920,9 @@ export default function Main() {
               ) : (
                 <div className="manifest-empty-box">
                   <span className="empty-text">{t('manifest.empty')}</span>
-                  <button className="ghost-btn" onClick={handleCreateManifest}>
+                  <button className="ghost-btn" onClick={handleAddClip}>
                     <PlusIcon size={12} />
-                    <span>{t('manifest.createDefault')}</span>
+                    <span>{t('manifest.addItem')}</span>
                   </button>
                 </div>
               )}

@@ -143,19 +143,26 @@ export const translations = {
     // Selector
     'selector.hint': 'Drag to crop recording area · Esc to cancel',
 
-    // Manifest Drawer
-    'manifest.tab': 'Manifest',
-    'manifest.title': 'Recording Manifest',
-    'manifest.subtitle': 'retake_manifest.json in output folder',
+    // Manifest Mode & Drawer
+    'manifest.modeTitle': 'Manifest Recording Mode',
+    'manifest.modeEnabled': 'Manifest Mode Active',
+    'manifest.modeDisabled': 'Normal Recording Mode',
+    'manifest.modeHint': 'Record pre-planned clips and iterate with auto-overwrite',
+    'manifest.selectDir': 'Choose Manifest Folder…',
+    'manifest.changeDir': 'Change Directory',
+    'manifest.dirRequired': 'Please select a manifest directory to enable manifest mode',
+    'manifest.dirInvalid': 'Directory invalid: Must be either empty or contain retake_manifest.json',
+    'manifest.dirEmptyCreated': 'Empty directory selected. Initialized new retake_manifest.json.',
+    'manifest.dirLoaded': 'Loaded manifest ({count} clips)',
     'manifest.activeTarget': 'Target Clip',
-    'manifest.noActiveTarget': 'Default timestamp filename',
+    'manifest.noActiveTarget': 'No target selected (timestamp naming)',
     'manifest.clearTarget': 'Clear Target',
     'manifest.willOverwrite': '⚠️ Re-recording without switching will overwrite this clip',
     'manifest.createDefault': 'Create Manifest',
     'manifest.openJson': 'Open JSON',
     'manifest.reload': 'Reload',
     'manifest.addItem': '+ Add Clip',
-    'manifest.empty': 'No manifest found. Click "Create Manifest" or place retake_manifest.json in the output folder.',
+    'manifest.empty': 'No clips in manifest. Click "+ Add Clip" to get started.',
     'manifest.clipTitle': 'Clip title / description...',
     'manifest.clipFile': 'target_name.mp4',
     'manifest.delete': 'Delete clip',
@@ -165,6 +172,8 @@ export const translations = {
     'manifest.statusPending': 'Pending',
     'manifest.play': 'Open video file',
     'manifest.targetBadge': 'TARGET: {name}',
+    'manifest.switchOnNotice': '✓ Switched to Manifest Mode',
+    'manifest.switchOffNotice': 'Switched to Normal Recording Mode',
   },
   zh: {
     // Brand & Status
@@ -303,19 +312,26 @@ export const translations = {
     // Selector
     'selector.hint': '拖拽框选录制区域 · Esc 取消',
 
-    // Manifest Drawer
-    'manifest.tab': '清单',
-    'manifest.title': '录制清单',
-    'manifest.subtitle': '保存目录下的 retake_manifest.json',
+    // Manifest Mode & Drawer
+    'manifest.modeTitle': '按清单录制模式',
+    'manifest.modeEnabled': '已开启清单模式',
+    'manifest.modeDisabled': '常规录制模式',
+    'manifest.modeHint': '按规划的片段逐项录制，未切换自动覆盖重录',
+    'manifest.selectDir': '选择清单保存目录…',
+    'manifest.changeDir': '更改目录',
+    'manifest.dirRequired': '开启清单模式前必须选择一个目录',
+    'manifest.dirInvalid': '目录不符合要求：必须为空目录或已包含 retake_manifest.json 文件',
+    'manifest.dirEmptyCreated': '已选择空目录，已自动新建 retake_manifest.json。',
+    'manifest.dirLoaded': '已加载目录清单 ({count} 个片段)',
     'manifest.activeTarget': '当前目标片段',
-    'manifest.noActiveTarget': '默认文件名（时间戳命名）',
+    'manifest.noActiveTarget': '未选择目标（默认时间戳命名）',
     'manifest.clearTarget': '取消目标',
     'manifest.willOverwrite': '⚠️ 若不切换直接重新录制，将覆盖同名片段',
     'manifest.createDefault': '新建清单',
     'manifest.openJson': '打开 JSON',
     'manifest.reload': '刷新',
     'manifest.addItem': '+ 添加片段',
-    'manifest.empty': '当前目录暂无清单文件。点击“新建清单”或在保存目录放置 retake_manifest.json。',
+    'manifest.empty': '清单中暂无片段，点击“+ 添加片段”开始规划。',
     'manifest.clipTitle': '片段名称/说明…',
     'manifest.clipFile': '目标文件名.mp4',
     'manifest.delete': '删除此项',
@@ -325,6 +341,8 @@ export const translations = {
     'manifest.statusPending': '待录制',
     'manifest.play': '打开视频',
     'manifest.targetBadge': '目标: {name}',
+    'manifest.switchOnNotice': '✓ 已开启按清单录制模式',
+    'manifest.switchOffNotice': '已切换至常规录制模式',
   },
 } as const
 
