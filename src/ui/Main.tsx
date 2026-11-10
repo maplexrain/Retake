@@ -4,15 +4,22 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window'
 import { open as pickFolderDialog } from '@tauri-apps/plugin-dialog'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { api } from '../api'
-import type { Bootstrap, MonitorInfo, PhaseView, Project, Recording, Region, Settings } from '../api'
+import type { Bootstrap, ManifestItem, MonitorInfo, PhaseView, Project, Recording, RecordingManifest, Region, Settings } from '../api'
 import { clamp, fmtDur } from '../fmt'
 import { useI18n, type I18nKey } from '../i18n'
 import logoSvg from '../assets/logo.svg'
 import {
-  ChevronDownIcon, ChevronRightIcon, CropIcon,
-  FolderIcon, GearIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MouseIcon,
-  PauseIcon, PlayIcon, RefreshIcon, SpeakerIcon, StopIcon, XIcon,
+  CheckIcon, ChevronDownIcon, ChevronRightIcon, CropIcon,
+  FolderIcon, GearIcon, ListIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MouseIcon,
+  PauseIcon, PlayIcon, PlusIcon, RefreshIcon, SpeakerIcon, StopIcon, TrashIcon, XIcon,
 } from './icons'
+
+function sanitizeFileName(name: string): string {
+  let s = name.trim().replace(/[<>:"/\\|?*]/g, '_')
+  if (!s) s = 'clip.mp4'
+  if (!s.toLowerCase().endsWith('.mp4')) s += '.mp4'
+  return s
+}
 
 type Toast = { id: number; text: string; kind: 'ok' | 'err' | 'info' }
 
@@ -28,6 +35,8 @@ export default function Main() {
   const [monitors, setMonitors] = useState<MonitorInfo[]>([])
   const [busy, setBusy] = useState(false)
   const [showMore, setShowMore] = useState(false)
+  const [showManifest, setShowManifest] = useState(false)
+  const [manifest, setManifest] = useState<RecordingManifest | null>(null)
   const [micLevel, setMicLevel] = useState(0)
   const [sysLevel, setSysLevel] = useState(0)
   const toastSeq = useRef(0)
@@ -37,6 +46,26 @@ export default function Main() {
     const id = ++toastSeq.current
     setToasts(t => [...t, { id, text, kind }])
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4600)
+  }
+
+  const reloadManifest = async (dir?: string) => {
+    try {
+      const targetDir = dir ?? boot?.outputDir ?? null
+      const mf = await api.loadManifest(targetDir)
+      setManifest(mf)
+      if (mf?.activeItemId) {
+        const active = mf.items.find(i => i.id === mf.activeItemId)
+        if (active) {
+          api.setActiveManifestTarget(active.targetFileName).catch(() => {})
+        } else {
+          api.setActiveManifestTarget(null).catch(() => {})
+        }
+      } else {
+        api.setActiveManifestTarget(null).catch(() => {})
+      }
+    } catch {
+      // ignore
+    }
   }
 
   // ---- Bootstrap & Initialization ----
@@ -53,6 +82,7 @@ export default function Main() {
         setPhase(b.phase)
         setMics(b.mics)
         setMonitors(b.monitors)
+        reloadManifest(b.outputDir)
       })
       .catch(e => toast(t('boot.initFailed', { err: String(e) }), 'err'))
   }, [])
@@ -74,7 +104,26 @@ export default function Main() {
       setMicLevel(p.mic)
       setSysLevel(p.sys)
     })
-    add<Recording>('rec://saved', r => toast(t('toast.saved', { file: r.fileName }), 'ok'))
+    add<Recording>('rec://saved', r => {
+      toast(t('toast.saved', { file: r.fileName }), 'ok')
+      setManifest(cur => {
+        if (!cur || !cur.activeItemId) return cur
+        const nextItems = cur.items.map(item => {
+          if (item.id === cur.activeItemId) {
+            return {
+              ...item,
+              status: 'recorded' as const,
+              duration: r.duration,
+              recordedAt: r.createdAt,
+            }
+          }
+          return item
+        })
+        const updated = { ...cur, items: nextItems }
+        api.saveManifest(updated, boot?.outputDir).catch(() => {})
+        return updated
+      })
+    })
     add<unknown>('rec://cancelled', () => toast(t('toast.cancelled'), 'info'))
     add<Project>('project://changed', p => {
       skipNextSave.current = true
@@ -84,7 +133,7 @@ export default function Main() {
       setProject(pr => (pr ? { ...pr, settings: { ...pr.settings, region: r } } : pr)),
     )
     return () => un.forEach(f => f())
-  }, [t])
+  }, [t, boot?.outputDir])
 
   // ---- Auto-Save Project Settings ----
   const firstSave = useRef(true)
@@ -140,7 +189,7 @@ export default function Main() {
       window.removeEventListener('resize', update)
       clearInterval(iv)
     }
-  }, [boot, showMore, phase.phase])
+  }, [boot, showMore, showManifest, phase.phase, manifest])
 
   // ---- Derived Values ----
   const ffmpegOk = boot?.ffmpeg.found ?? false
@@ -160,11 +209,116 @@ export default function Main() {
     return Math.max(1, Math.round((effRect.w * effRect.h * s.fps * bpp) / 8 * 60 / (1024 * 1024)))
   })()
 
+  // ---- Manifest & Target Clip ----
+  const activeClip = manifest?.items.find(i => i.id === manifest.activeItemId) ?? null
+
+  const handleSelectClip = async (item: ManifestItem) => {
+    if (!manifest) return
+    const nextId = manifest.activeItemId === item.id ? null : item.id
+    const updated = { ...manifest, activeItemId: nextId }
+    setManifest(updated)
+    const targetFile = nextId ? item.targetFileName : null
+    await api.setActiveManifestTarget(targetFile).catch(() => {})
+    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
+  }
+
+  const handleClearTarget = async () => {
+    if (!manifest) return
+    const updated = { ...manifest, activeItemId: null }
+    setManifest(updated)
+    await api.setActiveManifestTarget(null).catch(() => {})
+    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
+  }
+
+  const handleCreateManifest = async () => {
+    const initial: RecordingManifest = {
+      version: 1,
+      title: 'Recording Manifest',
+      activeItemId: 'clip_01',
+      items: [
+        {
+          id: 'clip_01',
+          title: '01 Intro',
+          targetFileName: '01_intro.mp4',
+          status: 'pending',
+        },
+        {
+          id: 'clip_02',
+          title: '02 Content',
+          targetFileName: '02_content.mp4',
+          status: 'pending',
+        },
+      ],
+    }
+    setManifest(initial)
+    await api.saveManifest(initial, boot?.outputDir).catch(() => {})
+    await api.setActiveManifestTarget('01_intro.mp4').catch(() => {})
+    setShowManifest(true)
+  }
+
+  const handleAddClip = async () => {
+    if (!manifest) {
+      await handleCreateManifest()
+      return
+    }
+    const idx = manifest.items.length + 1
+    const pad = idx < 10 ? `0${idx}` : `${idx}`
+    const newItem: ManifestItem = {
+      id: `clip_${Date.now()}`,
+      title: `Clip ${pad}`,
+      targetFileName: `clip_${pad}.mp4`,
+      status: 'pending',
+    }
+    const updated = { ...manifest, items: [...manifest.items, newItem] }
+    setManifest(updated)
+    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
+  }
+
+  const handleDeleteClip = async (id: string) => {
+    if (!manifest) return
+    const isTarget = manifest.activeItemId === id
+    const nextItems = manifest.items.filter(i => i.id !== id)
+    const updated = {
+      ...manifest,
+      items: nextItems,
+      activeItemId: isTarget ? null : manifest.activeItemId,
+    }
+    setManifest(updated)
+    if (isTarget) {
+      await api.setActiveManifestTarget(null).catch(() => {})
+    }
+    await api.saveManifest(updated, boot?.outputDir).catch(() => {})
+  }
+
+  const handleUpdateClip = (id: string, patch: Partial<ManifestItem>) => {
+    if (!manifest) return
+    const nextItems = manifest.items.map(i => {
+      if (i.id === id) {
+        return { ...i, ...patch }
+      }
+      return i
+    })
+    const updated = { ...manifest, items: nextItems }
+    setManifest(updated)
+    api.saveManifest(updated, boot?.outputDir).catch(() => {})
+    if (manifest.activeItemId === id && patch.targetFileName) {
+      api.setActiveManifestTarget(patch.targetFileName).catch(() => {})
+    }
+  }
+
+  const handleOpenManifestJson = () => {
+    api.openManifestFile(boot?.outputDir).catch(e => toast(String(e), 'err'))
+  }
+
   // ---- User Actions ----
   const patchSettings = (fields: Partial<Settings>) =>
     setProject(p => (p ? { ...p, settings: { ...p.settings, ...fields } } : p))
 
-  const start = () => api.recordStart().catch(e => toast(String(e), 'err'))
+  const start = () => {
+    const targetFile = activeClip ? activeClip.targetFileName : null
+    api.recordStart(targetFile).catch(e => toast(String(e), 'err'))
+  }
+
   const stop = async () => {
     setBusy(true)
     try {
@@ -184,6 +338,7 @@ export default function Main() {
     if (typeof dir === 'string' && dir) {
       setProject(p => (p ? { ...p, outputDir: dir } : p))
       setBoot(b => (b ? { ...b, outputDir: dir } : b))
+      reloadManifest(dir)
     }
   }
 
@@ -491,8 +646,201 @@ export default function Main() {
                   </button>
                 </div>
               )}
+
+              {/* Target clip indicator when idle */}
+              {activeClip && !recording && !paused && !counting && (
+                <div
+                  className="hero-target-pill"
+                  title={t('manifest.willOverwrite')}
+                  onClick={() => setShowManifest(true)}
+                >
+                  <span className="hero-target-bullet">🎯</span>
+                  <span className="hero-target-fn">{activeClip.targetFileName}</span>
+                  {activeClip.status === 'recorded' && (
+                    <span className="hero-target-recorded">({t('manifest.statusRecorded')})</span>
+                  )}
+                </div>
+              )}
             </div>
           </section>
+        </div>
+
+        {/* Collapsible Manifest Drawer */}
+        <div className="drawer-section manifest-drawer">
+          <button
+            className="drawer-toggle-bar"
+            onClick={() => setShowManifest(v => !v)}
+          >
+            <div className="toggle-bar-left">
+              <ListIcon size={12} className="gear-ico" />
+              <span>{t('manifest.title')}</span>
+              {activeClip && (
+                <span className="manifest-target-tag" title={activeClip.targetFileName}>
+                  🎯 {activeClip.targetFileName}
+                </span>
+              )}
+            </div>
+            <div className="toggle-bar-right">
+              <span className="toggle-hint">
+                {manifest && manifest.items.length > 0
+                  ? `${manifest.items.filter(i => i.status === 'recorded').length}/${manifest.items.length} ${t('manifest.statusRecorded')}`
+                  : t('manifest.empty')}
+              </span>
+              {showManifest ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+            </div>
+          </button>
+
+          {showManifest && (
+            <div className="drawer-content manifest-drawer-content">
+              {/* Manifest Top Toolbar */}
+              <div className="manifest-toolbar">
+                <div className="manifest-toolbar-info">
+                  <span className="manifest-subtitle">{t('manifest.subtitle')}</span>
+                </div>
+                <div className="manifest-toolbar-btns">
+                  {manifest ? (
+                    <>
+                      <button className="ghost-btn" onClick={handleAddClip}>
+                        <PlusIcon size={12} />
+                        <span>{t('manifest.addItem')}</span>
+                      </button>
+                      <button className="ghost-btn" onClick={handleOpenManifestJson} title="retake_manifest.json">
+                        <span>{t('manifest.openJson')}</span>
+                      </button>
+                      <button className="ghost-icon-btn" onClick={() => reloadManifest()} title={t('manifest.reload')}>
+                        <RefreshIcon size={12} />
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn small accent-btn" onClick={handleCreateManifest}>
+                      <PlusIcon size={12} />
+                      <span>{t('manifest.createDefault')}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Active Clip Callout Banner (if active target) */}
+              {activeClip && (
+                <div className="manifest-active-banner">
+                  <div className="active-banner-left">
+                    <span className="active-banner-dot" />
+                    <span className="active-banner-title">{t('manifest.activeTarget')}:</span>
+                    <strong className="active-banner-file">{activeClip.targetFileName}</strong>
+                    <span className="active-banner-desc">({activeClip.title})</span>
+                    {activeClip.status === 'recorded' && (
+                      <span className="active-banner-warn">{t('manifest.willOverwrite')}</span>
+                    )}
+                  </div>
+                  <button className="ghost-btn danger small" onClick={handleClearTarget}>
+                    {t('manifest.clearTarget')}
+                  </button>
+                </div>
+              )}
+
+              {/* Clips List */}
+              {manifest && manifest.items.length > 0 ? (
+                <div className="manifest-table">
+                  <div className="manifest-thead">
+                    <div className="th-col th-radio">#</div>
+                    <div className="th-col th-title">{t('manifest.clipTitle')}</div>
+                    <div className="th-col th-file">{t('manifest.clipFile')}</div>
+                    <div className="th-col th-status">{t('manifest.statusRecorded')} / {t('manifest.statusPending')}</div>
+                    <div className="th-col th-actions"></div>
+                  </div>
+                  <div className="manifest-tbody">
+                    {manifest.items.map((item, idx) => {
+                      const isActive = manifest.activeItemId === item.id
+                      const isRecorded = item.status === 'recorded'
+                      return (
+                        <div key={item.id} className={`manifest-row ${isActive ? 'is-active' : ''}`}>
+                          {/* Radio Selection for Target */}
+                          <div className="td-col td-radio">
+                            <button
+                              className={`manifest-radio ${isActive ? 'selected' : ''}`}
+                              onClick={() => handleSelectClip(item)}
+                              title={isActive ? t('manifest.active') : t('manifest.recordThis')}
+                            >
+                              <span className="radio-inner" />
+                            </button>
+                            <span className="row-num">{idx + 1}</span>
+                          </div>
+
+                          {/* Inline Title Editor */}
+                          <div className="td-col td-title">
+                            <input
+                              className="flat-input inline-text"
+                              value={item.title}
+                              placeholder={t('manifest.clipTitle')}
+                              onChange={e => handleUpdateClip(item.id, { title: e.target.value })}
+                            />
+                          </div>
+
+                          {/* Inline File Name Editor */}
+                          <div className="td-col td-file">
+                            <input
+                              className="flat-input inline-file"
+                              value={item.targetFileName}
+                              placeholder="clip.mp4"
+                              onChange={e => handleUpdateClip(item.id, { targetFileName: e.target.value })}
+                              onBlur={e => {
+                                const sanitized = sanitizeFileName(e.target.value)
+                                if (sanitized !== e.target.value) {
+                                  handleUpdateClip(item.id, { targetFileName: sanitized })
+                                }
+                              }}
+                            />
+                          </div>
+
+                          {/* Status & Duration */}
+                          <div className="td-col td-status">
+                            {isRecorded ? (
+                              <span className="manifest-badge recorded">
+                                <CheckIcon size={11} />
+                                <span>{fmtDur(item.duration || 0)}</span>
+                              </span>
+                            ) : (
+                              <span className="manifest-badge pending">
+                                <span>{t('manifest.statusPending')}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="td-col td-actions">
+                            {isRecorded && (
+                              <button
+                                className="ghost-icon-btn"
+                                title={t('manifest.play')}
+                                onClick={() => openAny(boot.outputDir + '/' + item.targetFileName)}
+                              >
+                                <PlayIcon size={11} />
+                              </button>
+                            )}
+                            <button
+                              className="ghost-icon-btn danger"
+                              title={t('manifest.delete')}
+                              onClick={() => handleDeleteClip(item.id)}
+                            >
+                              <TrashIcon size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="manifest-empty-box">
+                  <span className="empty-text">{t('manifest.empty')}</span>
+                  <button className="ghost-btn" onClick={handleCreateManifest}>
+                    <PlusIcon size={12} />
+                    <span>{t('manifest.createDefault')}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Collapsible Settings Drawer */}

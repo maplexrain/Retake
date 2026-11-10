@@ -16,6 +16,7 @@ export default function FloatingHud() {
   const [resumedAt, setResumedAt] = useState<number | null>(Date.now())
   const [elapsedSec, setElapsedSec] = useState(0)
   const [markers, setMarkers] = useState<number[]>([])
+  const [targetFileName, setTargetFileName] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastTimerRef = useRef<number | null>(null)
 
@@ -43,6 +44,7 @@ export default function FloatingHud() {
           setRecordedMs(p.recordedMs || 0)
           setResumedAt(p.resumedAt || null)
           if (p.markers) setMarkers(p.markers)
+          if (p.targetFileName) setTargetFileName(p.targetFileName)
         }
       })
       .catch(() => {})
@@ -58,6 +60,7 @@ export default function FloatingHud() {
         if (p.markers !== undefined) {
           setMarkers(p.markers)
         }
+        setTargetFileName(p.targetFileName || null)
       }
     }).then(u => unlistens.push(u))
 
@@ -194,6 +197,12 @@ export default function FloatingHud() {
         <div className="hud-bottom-row" data-tauri-drag-region>
           <div className="hud-time-display" title={t('hud.recTime')}>
             <span className="hud-time-num">{fmtDur(elapsedSec)}</span>
+            {targetFileName && (
+              <span className="hud-target-pill" title={targetFileName}>
+                <span className="hud-target-ico">🎯</span>
+                <span className="hud-target-name">{targetFileName}</span>
+              </span>
+            )}
           </div>
 
           {toast ? (

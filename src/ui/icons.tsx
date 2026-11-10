@@ -175,6 +175,17 @@ export const LockIcon = ({ size = 16, className }: P) => (
   </svg>
 )
 
+export const ListIcon = ({ size = 16, className }: P) => (
+  <svg {...svgProps(size, className)}>
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+)
+
 export const GearIcon = ({ size = 16, className }: P) => (
   <svg {...svgProps(size, className)}>
     <circle cx="12" cy="12" r="3" />

@@ -72,6 +72,10 @@ Resumed Session:    ────────────────────
   - Arbitrary region cropping: drag an interactive transparent overlay across any desktop rectangle.
 - **⏳ Fullscreen Pre-Roll Countdown**
   - Smooth visual countdown with quick-glance status verification badges (Crop size, Mic on, System audio on, Cursor visibility). Cancel anytime with <kbd>ESC</kbd>.
+- **📋 Segmented Recording Manifest (`retake_manifest.json`)**
+  - Pre-define video segments or lesson takes in a structured manifest (e.g., `01_intro.mp4`, `02_demo.mp4`).
+  - Target any clip with one click. Re-recording without switching automatically overwrites the target file, perfect for agile retakes.
+  - Automatically records duration, status, and timestamps. Supports inline editing, one-click JSON opening, and instant video preview.
 - **🎨 Card-Free Minimal Studio Deck**
   - Zero nested card visual noise. Hairline dividers, unified segmented selectors, and auto-adapting compact height.
 - **🌐 Reactive Internationalization (i18n)**

@@ -31,6 +31,7 @@ pub struct Session {
     /// Final output file path (segments are named X.pNN.mp4 alongside it)
     pub out_base: PathBuf,
     pub file_name: String,
+    pub target_file_name: Option<String>,
     pub capture_rect: Region,
     pub settings: Settings,
     pub has_sys: bool,

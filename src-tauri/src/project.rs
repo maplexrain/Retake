@@ -64,6 +64,43 @@ pub struct Project {
     pub settings: Settings,
 }
 
+pub const MANIFEST_FILENAME: &str = "retake_manifest.json";
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestItem {
+    pub id: String,
+    pub title: String,
+    pub target_file_name: String,
+    /// "pending" | "recorded"
+    pub status: String,
+    pub duration: Option<f64>,
+    pub recorded_at: Option<u64>,
+    #[serde(default)]
+    pub notes: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingManifest {
+    pub version: u32,
+    pub title: String,
+    pub active_item_id: Option<String>,
+    pub items: Vec<ManifestItem>,
+}
+
+pub fn load_manifest_from_dir(dir: &std::path::Path) -> Option<RecordingManifest> {
+    let file = dir.join(MANIFEST_FILENAME);
+    let s = std::fs::read_to_string(file).ok()?;
+    serde_json::from_str(&s).ok()
+}
+
+pub fn save_manifest_to_dir(dir: &std::path::Path, manifest: &RecordingManifest) -> Result<(), String> {
+    let file = dir.join(MANIFEST_FILENAME);
+    let s = serde_json::to_string_pretty(manifest).map_err(|e| e.to_string())?;
+    std::fs::write(file, s).map_err(|e| e.to_string())
+}
+
 pub fn load(app: &tauri::AppHandle) -> Project {
     let dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
     let file = dir.join("project.json");

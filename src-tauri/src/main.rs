@@ -24,6 +24,7 @@ pub struct AppState {
     pub recorder: Mutex<Recorder>,
     /// Monitor index currently covered by region selection overlay
     pub region_monitor: Mutex<Option<usize>>,
+    pub active_target: Mutex<Option<String>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -46,6 +47,7 @@ pub struct PhaseInfo {
     pub recorded_ms: Option<u64>,
     pub resumed_at: Option<u64>,
     pub markers: Vec<f64>,
+    pub target_file_name: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -66,32 +68,41 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn phase_info(rec: &Recorder) -> PhaseInfo {
+fn phase_info(rec: &Recorder, active_target: Option<String>) -> PhaseInfo {
     let markers = rec.session.as_ref().map(|s| s.markers.clone()).unwrap_or_default();
+    let target_file_name = rec
+        .session
+        .as_ref()
+        .and_then(|s| s.target_file_name.clone())
+        .or(active_target);
     match (&rec.phase, &rec.session) {
         (Phase::Recording, Some(s)) => PhaseInfo {
             phase: "recording".into(),
             recorded_ms: Some(s.recorded_total_ms()),
             resumed_at: Some(now_ms()),
             markers,
+            target_file_name,
         },
         (Phase::Paused, Some(s)) => PhaseInfo {
             phase: "paused".into(),
             recorded_ms: Some(s.recorded_ms),
             resumed_at: None,
             markers,
+            target_file_name,
         },
         (Phase::Countdown(_), _) => PhaseInfo {
             phase: "countdown".into(),
             recorded_ms: None,
             resumed_at: None,
             markers: vec![],
+            target_file_name,
         },
         _ => PhaseInfo {
             phase: "idle".into(),
             recorded_ms: None,
             resumed_at: None,
             markers: vec![],
+            target_file_name,
         },
     }
 }
@@ -99,7 +110,8 @@ fn phase_info(rec: &Recorder) -> PhaseInfo {
 fn emit_phase(app: &AppHandle) {
     let state = app.state::<AppState>();
     let rec = state.recorder.lock().unwrap();
-    let _ = app.emit("rec://phase", phase_info(&rec));
+    let active_target = state.active_target.lock().unwrap().clone();
+    let _ = app.emit("rec://phase", phase_info(&rec, active_target));
 }
 
 fn show_main(app: &AppHandle) {
@@ -185,7 +197,8 @@ async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
     let mics = ffmpeg_util::list_mics(project.settings.ffmpeg_path.as_deref());
     let monitors = list_monitor_infos(&app);
     let output_dir = output_dir(&app)?.to_string_lossy().into_owned();
-    let phase = phase_info(&state.recorder.lock().unwrap());
+    let active_target = state.active_target.lock().unwrap().clone();
+    let phase = phase_info(&state.recorder.lock().unwrap(), active_target);
     println!("[retake] bootstrap ffmpeg found={} path={:?}", ff.found, ff.path);
     Ok(Bootstrap {
         project,
@@ -280,6 +293,9 @@ fn finalize_recording(ses: &mut Session) -> Result<Recording, String> {
 
     // 1) Lossless video segment concatenation
     if ses.parts.len() == 1 {
+        if out.exists() {
+            let _ = std::fs::remove_file(&out);
+        }
         std::fs::rename(&ses.parts[0], &out).map_err(|e| format!("Failed to save: {e}"))?;
         ses.parts.clear();
     } else if !ses.parts.is_empty() {
@@ -402,6 +418,9 @@ fn finalize_recording(ses: &mut Session) -> Result<Recording, String> {
             ffmpeg_util::run_exiting(&exe, &args)
         };
         if mix_ok && mixed.exists() {
+            if out.exists() {
+                let _ = std::fs::remove_file(&out);
+            }
             std::fs::rename(&mixed, &out).map_err(|e| format!("Failed to replace output after audio muxing: {e}"))?;
             for p in &ses.sys_parts {
                 let _ = std::fs::remove_file(p);
@@ -499,9 +518,33 @@ fn start_recording_now(app: &AppHandle, capture_rect: Region) -> Result<(), Stri
         p.settings.clone()
     };
     let dir = output_dir(app)?;
-    let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let fname = format!("rec_{stamp}.mp4");
-    let out_base = dir.join(&fname);
+    let (target_file_name, fname, out_base) = {
+        let active = state.active_target.lock().unwrap().clone();
+        if let Some(mut t) = active {
+            t = t.trim().to_string();
+            if !t.is_empty() {
+                if !t.to_lowercase().ends_with(".mp4") {
+                    t.push_str(".mp4");
+                }
+                let sanitized: String = t
+                    .chars()
+                    .map(|c| if "<>:\"/\\|?*".contains(c) { '_' } else { c })
+                    .collect();
+                let out = dir.join(&sanitized);
+                (Some(sanitized.clone()), sanitized, out)
+            } else {
+                let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                let f = format!("rec_{stamp}.mp4");
+                let out = dir.join(&f);
+                (None, f, out)
+            }
+        } else {
+            let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            let f = format!("rec_{stamp}.mp4");
+            let out = dir.join(&f);
+            (None, f, out)
+        }
+    };
     let has_sys = settings.system_audio;
     let mut ses = Session {
         parts: Vec::new(),
@@ -512,6 +555,7 @@ fn start_recording_now(app: &AppHandle, capture_rect: Region) -> Result<(), Stri
         resumed_at: None,
         out_base,
         file_name: fname,
+        target_file_name,
         capture_rect: capture_rect.clone(),
         settings: settings.clone(),
         has_sys,
@@ -532,7 +576,14 @@ fn start_recording_now(app: &AppHandle, capture_rect: Region) -> Result<(), Stri
 }
 
 #[tauri::command]
-async fn record_start(app: AppHandle) -> Result<(), String> {
+async fn record_start(app: AppHandle, target_filename: Option<String>) -> Result<(), String> {
+    if let Some(t) = target_filename {
+        *app.state::<AppState>().active_target.lock().unwrap() = if t.trim().is_empty() {
+            None
+        } else {
+            Some(t.trim().to_string())
+        };
+    }
     record_start_impl(&app)
 }
 
@@ -854,7 +905,61 @@ async fn record_rollback(app: AppHandle) -> Result<(), String> {
 async fn get_hud_state(app: AppHandle) -> Result<PhaseInfo, String> {
     let state = app.state::<AppState>();
     let rec = state.recorder.lock().unwrap();
-    Ok(phase_info(&rec))
+    let active_target = state.active_target.lock().unwrap().clone();
+    Ok(phase_info(&rec, active_target))
+}
+
+// ---------------- Manifest Commands ----------------
+
+#[tauri::command]
+async fn load_manifest(app: AppHandle, dir: Option<String>) -> Result<Option<project::RecordingManifest>, String> {
+    let target_dir = match dir {
+        Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d),
+        _ => output_dir(&app)?,
+    };
+    Ok(project::load_manifest_from_dir(&target_dir))
+}
+
+#[tauri::command]
+async fn save_manifest(app: AppHandle, manifest: project::RecordingManifest, dir: Option<String>) -> Result<(), String> {
+    let target_dir = match dir {
+        Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d),
+        _ => output_dir(&app)?,
+    };
+    project::save_manifest_to_dir(&target_dir, &manifest)
+}
+
+#[tauri::command]
+async fn set_active_manifest_target(app: AppHandle, target_filename: Option<String>) -> Result<(), String> {
+    let cleaned = target_filename.and_then(|t| {
+        let s = t.trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    });
+    *app.state::<AppState>().active_target.lock().unwrap() = cleaned;
+    emit_phase(&app);
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_manifest_file(app: AppHandle, dir: Option<String>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let target_dir = match dir {
+        Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d),
+        _ => output_dir(&app)?,
+    };
+    let file_path = target_dir.join(project::MANIFEST_FILENAME);
+    if !file_path.exists() {
+        let default_manifest = project::RecordingManifest {
+            version: 1,
+            title: "Recording Manifest".into(),
+            active_item_id: None,
+            items: vec![],
+        };
+        let _ = project::save_manifest_to_dir(&target_dir, &default_manifest);
+    }
+    app.opener()
+        .open_path(file_path.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 // ---------------- Overlays and Floating Windows ----------------
@@ -1146,6 +1251,7 @@ fn main() {
             project: Mutex::new(Project::default()),
             recorder: Mutex::new(Recorder::new()),
             region_monitor: Mutex::new(None),
+            active_target: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
@@ -1162,6 +1268,10 @@ fn main() {
             finish_region_select,
             check_ffmpeg,
             list_mics,
+            load_manifest,
+            save_manifest,
+            set_active_manifest_target,
+            open_manifest_file,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

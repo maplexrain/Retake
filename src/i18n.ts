@@ -142,6 +142,29 @@ export const translations = {
 
     // Selector
     'selector.hint': 'Drag to crop recording area · Esc to cancel',
+
+    // Manifest Drawer
+    'manifest.tab': 'Manifest',
+    'manifest.title': 'Recording Manifest',
+    'manifest.subtitle': 'retake_manifest.json in output folder',
+    'manifest.activeTarget': 'Target Clip',
+    'manifest.noActiveTarget': 'Default timestamp filename',
+    'manifest.clearTarget': 'Clear Target',
+    'manifest.willOverwrite': '⚠️ Re-recording without switching will overwrite this clip',
+    'manifest.createDefault': 'Create Manifest',
+    'manifest.openJson': 'Open JSON',
+    'manifest.reload': 'Reload',
+    'manifest.addItem': '+ Add Clip',
+    'manifest.empty': 'No manifest found. Click "Create Manifest" or place retake_manifest.json in the output folder.',
+    'manifest.clipTitle': 'Clip title / description...',
+    'manifest.clipFile': 'target_name.mp4',
+    'manifest.delete': 'Delete clip',
+    'manifest.recordThis': 'Record this clip',
+    'manifest.active': 'Active Recording Target',
+    'manifest.statusRecorded': 'Recorded',
+    'manifest.statusPending': 'Pending',
+    'manifest.play': 'Open video file',
+    'manifest.targetBadge': 'TARGET: {name}',
   },
   zh: {
     // Brand & Status
@@ -279,6 +302,29 @@ export const translations = {
 
     // Selector
     'selector.hint': '拖拽框选录制区域 · Esc 取消',
+
+    // Manifest Drawer
+    'manifest.tab': '清单',
+    'manifest.title': '录制清单',
+    'manifest.subtitle': '保存目录下的 retake_manifest.json',
+    'manifest.activeTarget': '当前目标片段',
+    'manifest.noActiveTarget': '默认文件名（时间戳命名）',
+    'manifest.clearTarget': '取消目标',
+    'manifest.willOverwrite': '⚠️ 若不切换直接重新录制，将覆盖同名片段',
+    'manifest.createDefault': '新建清单',
+    'manifest.openJson': '打开 JSON',
+    'manifest.reload': '刷新',
+    'manifest.addItem': '+ 添加片段',
+    'manifest.empty': '当前目录暂无清单文件。点击“新建清单”或在保存目录放置 retake_manifest.json。',
+    'manifest.clipTitle': '片段名称/说明…',
+    'manifest.clipFile': '目标文件名.mp4',
+    'manifest.delete': '删除此项',
+    'manifest.recordThis': '设为录制目标',
+    'manifest.active': '当前录制目标',
+    'manifest.statusRecorded': '已录制',
+    'manifest.statusPending': '待录制',
+    'manifest.play': '打开视频',
+    'manifest.targetBadge': '目标: {name}',
   },
 } as const
 

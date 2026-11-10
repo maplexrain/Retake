@@ -78,6 +78,11 @@ export default function Countdown() {
 
         {/* Status badges */}
         <div className="cd-badges">
+          {boot?.phase?.targetFileName && (
+            <span className="cd-badge target" title={boot.phase.targetFileName}>
+              🎯 {boot.phase.targetFileName}
+            </span>
+          )}
           <span className="cd-badge">
             {hasRegion ? t('countdown.region', { w: s.region!.w, h: s.region!.h }) : t('countdown.fullscreen')}
           </span>
