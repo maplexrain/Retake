@@ -49,7 +49,7 @@ fn candidates(configured: Option<&str>) -> Vec<String> {
 }
 
 fn probe(exe: &str) -> Option<FfmpegInfo> {
-    let mut cmd = Command::new(exe);
+    let mut cmd = Command::new(&exe);
     cmd.arg("-version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -121,6 +121,11 @@ pub struct CaptureHandle {
     pub file_name: String,
     pub stop_signal: Option<Arc<AtomicBool>>,
     pub worker_thread: Option<JoinHandle<()>>,
+    pub mic_child: Option<Child>,
+    pub mic_stdin: Option<ChildStdin>,
+    pub temp_video_path: Option<std::path::PathBuf>,
+    pub temp_mic_path: Option<std::path::PathBuf>,
+    pub ffmpeg_exe: String,
 }
 
 /// Spawn gdigrab desktop capture -> x264/aac -> mp4.
@@ -187,7 +192,7 @@ pub fn spawn_capture(settings: &Settings, out: &Path, rect: Option<&crate::proje
     }
     args.extend(["-movflags".into(), "+faststart".into(), out.to_string_lossy().into_owned()]);
 
-    let mut cmd = Command::new(exe);
+    let mut cmd = Command::new(&exe);
     cmd.args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -221,44 +226,86 @@ pub fn spawn_capture(settings: &Settings, out: &Path, rect: Option<&crate::proje
         file_name,
         stop_signal: None,
         worker_thread: None,
+        mic_child: None,
+        mic_stdin: None,
+        temp_video_path: None,
+        temp_mic_path: None,
+        ffmpeg_exe: exe,
     })
 }
 
 /// Gracefully stop ffmpeg. If worker_thread is running, signal it to stop and wait. Returns parsed duration in seconds.
-pub fn finish(
-    child: &mut Child,
-    stdin: &mut Option<ChildStdin>,
-    tail: &Arc<Mutex<String>>,
-    timeout_ms: u64,
-    stop_signal: Option<&Arc<AtomicBool>>,
-    worker_thread: &mut Option<JoinHandle<()>>,
-) -> f64 {
-    if let Some(stop) = stop_signal {
+pub fn finish(h: &mut CaptureHandle, timeout_ms: u64) -> f64 {
+    // 1. If dedicated mic child is running, gracefully stop it by sending 'q'
+    if let Some(mut m_si) = h.mic_stdin.take() {
+        let _ = m_si.write_all(b"q");
+        let _ = m_si.flush();
+    }
+    if let Some(mut m_child) = h.mic_child.take() {
+        let _ = m_child.wait();
+    }
+
+    // 2. Stop window capture worker thread
+    if let Some(stop) = h.stop_signal.as_ref() {
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    if let Some(mut si) = stdin.take() {
+    // For standard gdigrab, send 'q' to stdin
+    if let Some(mut si) = h.stdin.take() {
         let _ = si.write_all(b"q");
         let _ = si.flush();
     }
-    if let Some(worker) = worker_thread.take() {
+    if let Some(worker) = h.worker_thread.take() {
         let _ = worker.join();
     }
+
+    // 3. Wait for main video ffmpeg to finish
     let start = std::time::Instant::now();
     loop {
-        match child.try_wait() {
+        match h.child.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) => {
                 if start.elapsed().as_millis() as u64 > timeout_ms {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    let _ = h.child.kill();
+                    let _ = h.child.wait();
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(60));
+                std::thread::sleep(std::time::Duration::from_millis(40));
             }
             Err(_) => break,
         }
     }
-    let t = tail.lock().unwrap().clone();
+
+    // 4. If separate video and mic were recorded, mux them via zero-reencode stream copy
+    if let (Some(temp_v), Some(temp_m)) = (h.temp_video_path.take(), h.temp_mic_path.take()) {
+        if temp_v.exists() && temp_m.exists() {
+            let mut mux_cmd = Command::new(&h.ffmpeg_exe);
+            mux_cmd.args([
+                "-hide_banner",
+                "-y",
+                "-i",
+                temp_v.to_str().unwrap_or_default(),
+                "-i",
+                temp_m.to_str().unwrap_or_default(),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                h.out.to_str().unwrap_or_default(),
+            ]);
+            hide_console(&mut mux_cmd);
+            let _ = mux_cmd.status();
+            let _ = std::fs::remove_file(&temp_v);
+            let _ = std::fs::remove_file(&temp_m);
+        } else if temp_v.exists() {
+            let _ = std::fs::rename(&temp_v, &h.out);
+        }
+    }
+
+    let t = h.tail.lock().unwrap().clone();
     parse_last_time(&t).unwrap_or(0.0)
 }
 
@@ -269,7 +316,7 @@ pub fn kill_now(mut child: Child) {
 
 /// Run a foreground ffmpeg subcommand (e.g. concat/mux), returns whether it succeeded.
 pub fn run_exiting(exe: &str, args: &[String]) -> bool {
-    let mut cmd = Command::new(exe);
+    let mut cmd = Command::new(&exe);
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     match cmd.output() {

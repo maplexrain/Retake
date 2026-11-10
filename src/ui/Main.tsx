@@ -50,6 +50,12 @@ export default function Main() {
   const windowsPickerRef = useRef<HTMLDivElement>(null)
   const toastSeq = useRef(0)
   const skipNextSave = useRef(false)
+  const lastToastText = useRef<string>('')
+  const lastToastTime = useRef<number>(0)
+  const tRef = useRef(t)
+  useEffect(() => { tRef.current = t }, [t])
+  const projectRef = useRef(project)
+  useEffect(() => { projectRef.current = project }, [project])
 
   const handleDropdownOpenChange = (isOpen: boolean) => {
     setOpenDropdownCount(n => isOpen ? n + 1 : Math.max(0, n - 1))
@@ -75,9 +81,16 @@ export default function Main() {
   }, [showWindowsDrawer])
 
   const toast = (text: string, kind: Toast['kind'] = 'info') => {
+    const now = Date.now()
+    if (text === lastToastText.current && now - lastToastTime.current < 1600) {
+      return
+    }
+    lastToastText.current = text
+    lastToastTime.current = now
+
     const id = ++toastSeq.current
-    setToasts(t => [...t, { id, text, kind }])
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4600)
+    setToasts(tList => [...tList.slice(-2), { id, text, kind }])
+    setTimeout(() => setToasts(tList => tList.filter(x => x.id !== id)), 4000)
   }
 
   const reloadManifest = async (dir?: string | null) => {
@@ -138,23 +151,34 @@ export default function Main() {
 
   // ---- Event Subscriptions ----
   useEffect(() => {
-    const un: Array<() => void> = []
-    const add = <T,>(ev: string, fn: (p: T) => void) => {
-      listen<T>(ev, e => fn(e.payload)).then(u => un.push(u))
+    let active = true
+    const cleanups: Array<() => void> = []
+
+    const register = async <T,>(ev: string, fn: (p: T) => void) => {
+      const u = await listen<T>(ev, e => {
+        if (active) fn(e.payload)
+      })
+      if (active) {
+        cleanups.push(u)
+      } else {
+        u()
+      }
     }
-    add<PhaseView>('rec://phase', p => {
+
+    register<PhaseView>('rec://phase', p => {
       setPhase(p)
       setCountdown(0)
       if (p.phase !== 'recording') setElapsed(0)
     })
-    add<{ left: number }>('rec://countdown', p => setCountdown(p.left))
-    add<{ message: string }>('rec://error', p => toast(p.message, 'err'))
-    add<{ mic: number; sys: number }>('audio://levels', p => {
+    register<{ left: number }>('rec://countdown', p => setCountdown(p.left))
+    register<{ message: string }>('rec://error', p => toast(p.message, 'err'))
+    register<{ mic: number; sys: number }>('audio://levels', p => {
       setMicLevel(p.mic)
       setSysLevel(p.sys)
     })
-    add<Recording>('rec://saved', r => {
-      toast(t('toast.saved', { file: r.fileName }), 'ok')
+    register<Recording>('rec://saved', r => {
+      const curT = tRef.current
+      toast(curT('toast.saved', { file: r.fileName }), 'ok')
       setManifest(cur => {
         if (!cur || !cur.activeItemId) return cur
         const nextItems = cur.items.map(item => {
@@ -169,24 +193,32 @@ export default function Main() {
           return item
         })
         const updated = { ...cur, items: nextItems }
-        const saveDir = project?.manifestMode && project?.manifestDir ? project.manifestDir : null
+        const p = projectRef.current
+        const saveDir = p?.manifestMode && p?.manifestDir ? p.manifestDir : null
         if (saveDir) {
           api.saveManifest(updated, saveDir).catch(() => {})
         }
         return updated
       })
     })
-    add<unknown>('rec://cancelled', () => toast(t('toast.cancelled'), 'info'))
-    add<Project>('project://changed', p => {
+    register<unknown>('rec://cancelled', () => {
+      const curT = tRef.current
+      toast(curT('toast.cancelled'), 'info')
+    })
+    register<Project>('project://changed', p => {
       skipNextSave.current = true
       setProject(p)
     })
-    add<Region>('region://updated', r =>
+    register<Region>('region://updated', r =>
       setProject(pr => (pr ? { ...pr, settings: { ...pr.settings, region: r } } : pr)),
     )
-    add<void>('scope-preview://closed', () => setIsPreviewingScope(false))
-    return () => un.forEach(f => f())
-  }, [t, boot?.outputDir])
+    register<void>('scope-preview://closed', () => setIsPreviewingScope(false))
+
+    return () => {
+      active = false
+      cleanups.forEach(f => f())
+    }
+  }, [])
 
   // ---- Auto-Save Project Settings ----
   const firstSave = useRef(true)

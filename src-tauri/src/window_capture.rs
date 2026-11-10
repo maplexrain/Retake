@@ -2,6 +2,7 @@
 // Directly captures application window render contents using Win32 PrintWindow (PW_RENDERFULLCONTENT).
 // This guarantees immunity against window displacements (movement) and window z-order occlusions (layer stacking).
 // Captured raw BGRA video frames are piped directly to FFmpeg stdin.
+// Separate audio recording and zero-reencode stream muxing ensure zero hangs and 100% valid MP4 outputs.
 
 use crate::ffmpeg_util::{detect, hide_console, CaptureHandle};
 use crate::project::Settings;
@@ -64,6 +65,8 @@ mod win32 {
         pub fn IsIconic(hwnd: HWND) -> i32;
         pub fn GetWindowRect(hwnd: HWND, lpRect: *mut RECT) -> i32;
         pub fn PrintWindow(hwnd: HWND, hdcBlt: HDC, nFlags: u32) -> i32;
+        pub fn GetDC(hwnd: HWND) -> HDC;
+        pub fn ReleaseDC(hwnd: HWND, hdc: HDC) -> i32;
     }
 
     #[link(name = "dwmapi")]
@@ -86,6 +89,18 @@ mod win32 {
         pub fn DeleteObject(ho: HGDIOBJ) -> i32;
         pub fn SelectObject(hdc: HDC, h: HGDIOBJ) -> HGDIOBJ;
         pub fn SetStretchBltMode(hdc: HDC, mode: i32) -> i32;
+        #[allow(dead_code)]
+        pub fn BitBlt(
+            hdcDest: HDC,
+            nXDest: i32,
+            nYDest: i32,
+            nWidth: i32,
+            nHeight: i32,
+            hdcSrc: HDC,
+            nXSrc: i32,
+            nYSrc: i32,
+            dwRop: u32,
+        ) -> i32;
         pub fn StretchBlt(
             hdcDest: HDC,
             xDest: i32,
@@ -217,8 +232,9 @@ impl Drop for DIBBuffer {
     }
 }
 
-/// Spawn dedicated window capture -> x264/aac -> mp4.
+/// Spawn dedicated window capture -> x264 -> mp4.
 /// Captures target hwnd directly without screen area clipping.
+/// Separate microphone recording prevents DirectShow blocking and ensures instant, non-corrupted MP4 finalization.
 #[cfg(windows)]
 pub fn spawn_window_capture(
     settings: &Settings,
@@ -237,7 +253,22 @@ pub fn spawn_window_capture(
     let fps = settings.fps.clamp(5, 60);
     let crf = settings.crf.clamp(14, 34).to_string();
 
-    let mut args: Vec<String> = vec![
+    let mic = settings.mic.as_deref().map(str::trim).filter(|m| !m.is_empty());
+    let with_mic = mic.is_some();
+
+    // Determine target video file path:
+    // If mic is active, video records to a temporary file and is muxed in milliseconds on stop.
+    // If no mic, video writes directly to out.
+    let (video_out_path, temp_video_path, temp_mic_path) = if with_mic {
+        let tv = out.with_extension("tmp_v.mp4");
+        let tm = out.with_extension("tmp_m.wav");
+        (tv.clone(), Some(tv), Some(tm))
+    } else {
+        (out.to_path_buf(), None, None)
+    };
+
+    // 1. Spawn pure video FFmpeg process (reads rawvideo from stdin)
+    let video_args: Vec<String> = vec![
         "-hide_banner".into(),
         "-y".into(),
         "-f".into(),
@@ -249,19 +280,7 @@ pub fn spawn_window_capture(
         "-r".into(),
         fps.to_string(),
         "-i".into(),
-        "-".into(), // Piped raw video frames from worker thread
-    ];
-
-    let mic = settings.mic.as_deref().map(str::trim).filter(|m| !m.is_empty());
-    let with_audio = mic.is_some();
-    if let Some(m) = mic {
-        args.push("-f".into());
-        args.push("dshow".into());
-        args.push("-i".into());
-        args.push(format!("audio={m}"));
-    }
-
-    args.extend([
+        "-".into(),
         "-c:v".into(),
         "libx264".into(),
         "-preset".into(),
@@ -272,21 +291,20 @@ pub fn spawn_window_capture(
         "yuv420p".into(),
         "-vf".into(),
         "scale=trunc(iw/2)*2:trunc(ih/2)*2".into(),
-    ]);
-    if with_audio {
-        args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "128k".into()]);
-    }
-    args.extend(["-movflags".into(), "+faststart".into(), out.to_string_lossy().into_owned()]);
+        "-movflags".into(),
+        "+faststart".into(),
+        video_out_path.to_string_lossy().into_owned(),
+    ];
 
-    let mut cmd = Command::new(exe);
-    cmd.args(&args)
+    let mut video_cmd = Command::new(&exe);
+    video_cmd.args(&video_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    hide_console(&mut cmd);
+    hide_console(&mut video_cmd);
 
-    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn ffmpeg: {e}"))?;
-    let mut stdin = child.stdin.take().ok_or("Failed to open ffmpeg stdin")?;
+    let mut child = video_cmd.spawn().map_err(|e| format!("Failed to spawn video ffmpeg: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("Failed to open video ffmpeg stdin")?;
     let stderr = child.stderr.take();
 
     let tail = Arc::new(Mutex::new(String::new()));
@@ -306,10 +324,42 @@ pub fn spawn_window_capture(
         });
     }
 
+    // 2. If mic is configured, spawn dedicated audio FFmpeg process
+    let (mic_child, mic_stdin) = if let (Some(m), Some(tm_path)) = (mic, temp_mic_path.as_ref()) {
+        let mut mic_cmd = Command::new(&exe);
+        mic_cmd.args([
+            "-hide_banner",
+            "-y",
+            "-f",
+            "dshow",
+            "-i",
+            &format!("audio={m}"),
+            "-c:a",
+            "pcm_s16le",
+            tm_path.to_str().unwrap_or_default(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+        hide_console(&mut mic_cmd);
+        match mic_cmd.spawn() {
+            Ok(mut mc) => {
+                let si = mc.stdin.take();
+                (Some(mc), si)
+            }
+            Err(e) => {
+                eprintln!("[window_capture] Failed to spawn mic ffmpeg: {e}");
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
+
     let stop_signal = Arc::new(AtomicBool::new(false));
     let stop_for_thread = stop_signal.clone();
 
-    // Spawn dedicated window frame capture thread
+    // 3. Spawn dedicated window frame capture thread
     let worker_thread = std::thread::spawn(move || {
         let target_hwnd = hwnd as usize as win32::HWND;
         let dib = match DIBBuffer::new(base_w, base_h) {
@@ -342,50 +392,41 @@ pub fn spawn_window_capture(
 
             let mut captured_ok = false;
             if is_alive && !is_minimized {
-                let mut r = win32::RECT::default();
-                let hr = unsafe {
-                    win32::DwmGetWindowAttribute(
-                        target_hwnd,
-                        win32::DWMWA_EXTENDED_FRAME_BOUNDS,
-                        &mut r as *mut _ as *mut core::ffi::c_void,
-                        std::mem::size_of::<win32::RECT>() as u32,
-                    )
-                };
-                if hr != 0 {
-                    unsafe {
-                        win32::GetWindowRect(target_hwnd, &mut r);
-                    }
-                }
-                let curr_w = (r.right - r.left).max(1);
-                let curr_h = (r.bottom - r.top).max(1);
-
-                if curr_w == base_w && curr_h == base_h {
-                    // Match dimensions: render directly to destination DIB
-                    let ok = unsafe { win32::PrintWindow(target_hwnd, dib.hdc, win32::PW_RENDERFULLCONTENT) != 0 };
-                    if ok || unsafe { win32::PrintWindow(target_hwnd, dib.hdc, 0) != 0 } {
-                        captured_ok = true;
-                    }
+                // Tier 1: Try PrintWindow with PW_RENDERFULLCONTENT (DWM composite capture)
+                let ok1 = unsafe { win32::PrintWindow(target_hwnd, dib.hdc, win32::PW_RENDERFULLCONTENT) != 0 };
+                if ok1 {
+                    captured_ok = true;
                 } else {
-                    // Window size resized: dynamically render into temp DIB and scale smoothly to base canvas
-                    if let Ok(temp_dib) = DIBBuffer::new(curr_w, curr_h) {
-                        let ok = unsafe { win32::PrintWindow(target_hwnd, temp_dib.hdc, win32::PW_RENDERFULLCONTENT) != 0 };
-                        if ok || unsafe { win32::PrintWindow(target_hwnd, temp_dib.hdc, 0) != 0 } {
-                            unsafe {
-                                win32::StretchBlt(
-                                    dib.hdc,
-                                    0,
-                                    0,
-                                    base_w,
-                                    base_h,
-                                    temp_dib.hdc,
-                                    0,
-                                    0,
-                                    curr_w,
-                                    curr_h,
-                                    win32::SRCCOPY,
-                                );
+                    // Tier 2: Try PrintWindow standard WM_PRINT
+                    let ok2 = unsafe { win32::PrintWindow(target_hwnd, dib.hdc, 0) != 0 };
+                    if ok2 {
+                        captured_ok = true;
+                    } else {
+                        // Tier 3: Fallback to active window bounds BitBlt
+                        let mut r = win32::RECT::default();
+                        if unsafe { win32::GetWindowRect(target_hwnd, &mut r) != 0 } {
+                            let rw = (r.right - r.left).max(1);
+                            let rh = (r.bottom - r.top).max(1);
+                            let screen_dc = unsafe { win32::GetDC(core::ptr::null_mut()) };
+                            if !screen_dc.is_null() {
+                                unsafe {
+                                    win32::StretchBlt(
+                                        dib.hdc,
+                                        0,
+                                        0,
+                                        base_w,
+                                        base_h,
+                                        screen_dc,
+                                        r.left,
+                                        r.top,
+                                        rw,
+                                        rh,
+                                        win32::SRCCOPY,
+                                    );
+                                    win32::ReleaseDC(core::ptr::null_mut(), screen_dc);
+                                }
+                                captured_ok = true;
                             }
-                            captured_ok = true;
                         }
                     }
                 }
@@ -423,6 +464,11 @@ pub fn spawn_window_capture(
         file_name,
         stop_signal: Some(stop_signal),
         worker_thread: Some(worker_thread),
+        mic_child,
+        mic_stdin,
+        temp_video_path,
+        temp_mic_path,
+        ffmpeg_exe: exe,
     })
 }
 

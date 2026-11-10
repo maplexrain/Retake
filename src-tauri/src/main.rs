@@ -281,23 +281,16 @@ fn spawn_part(ses: &mut Session) -> Result<(), String> {
 /// Finish current segment (retain files for final concatenation)
 fn finish_part(ses: &mut Session, timeout_ms: u64) -> Result<(), String> {
     if let Some(mut h) = ses.cur.take() {
-        ffmpeg_util::finish(
-            &mut h.child,
-            &mut h.stdin,
-            &h.tail,
-            timeout_ms,
-            h.stop_signal.as_ref(),
-            &mut h.worker_thread,
-        );
+        ffmpeg_util::finish(&mut h, timeout_ms);
         let size = std::fs::metadata(&h.out).map(|m| m.len()).unwrap_or(0);
-        if !h.out.exists() || size == 0 {
+        if !h.out.exists() || size < 1024 {
             let tail = h.tail.lock().unwrap().clone();
             let errline = tail
                 .lines()
                 .rev()
                 .find(|l| l.contains("Error") || l.contains("error") || l.contains("Could not") || l.contains("No such"))
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| "ffmpeg produced no output file".into());
+                .unwrap_or_else(|| format!("Recording output incomplete (file size {size} bytes)"));
             return Err(format!("Recording failed: {errline}"));
         }
         ses.parts.push(h.out);
