@@ -132,11 +132,15 @@ fn show_main(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+        win::set_window_capture_exclusion(&w, !record_app);
     }
 }
 
 fn hide_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        // Clear capture exclusion before hiding so WebView2 compositor doesn't break into a white surface
+        win::set_window_capture_exclusion(&w, false);
         let _ = w.hide();
     }
 }
@@ -195,7 +199,9 @@ fn apply_app_exclusion(app: &AppHandle, record_app_windows: bool) {
     {
         for label in ["main", "hud", "countdown", "selector", "scope_preview"] {
             if let Some(w) = app.get_webview_window(label) {
-                win::set_window_capture_exclusion(&w, exclude);
+                if w.is_visible().unwrap_or(false) {
+                    win::set_window_capture_exclusion(&w, exclude);
+                }
             }
         }
     }
@@ -508,6 +514,18 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
         }
     };
     let countdown = project.settings.countdown_sec.clamp(0, 10);
+
+    // Close any lingering scope preview or selector overlays
+    if let Some(w) = app.get_webview_window("scope_preview") {
+        let _ = w.close();
+    }
+    *app.state::<AppState>().scope_preview_info.lock().unwrap() = None;
+    let _ = app.emit("scope-preview://closed", ());
+
+    if let Some(w) = app.get_webview_window("selector") {
+        let _ = w.close();
+    }
+
     // Hide main window when recording starts
     hide_main(app);
     if countdown == 0 {
@@ -534,6 +552,8 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
             return;
         }
         close_countdown_window(&app2);
+        // Guarantee main window remains hidden even after countdown window closes
+        hide_main(&app2);
         if let Err(e) = start_recording_now(&app2, capture_rect) {
             close_hud_window(&app2);
             {
@@ -549,6 +569,7 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
 }
 
 fn start_recording_now(app: &AppHandle, capture_rect: Region) -> Result<(), String> {
+    hide_main(app);
     let state = app.state::<AppState>();
     let p = state.project.lock().unwrap().clone();
     let settings = p.settings.clone();
@@ -1195,6 +1216,7 @@ fn show_hud_window(app: &AppHandle, capture_rect: &Region, monitor_index: Option
         .map_err(|e| e.to_string())?;
     let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
     win::set_window_capture_exclusion(&w, !record_app);
+    let _ = w.set_focus();
     Ok(())
 }
 
@@ -1272,6 +1294,7 @@ async fn show_scope_preview(app: AppHandle, rect: Region) -> Result<(), String> 
 
     let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
     win::set_window_capture_exclusion(&w, !record_app);
+    let _ = w.set_focus();
     Ok(())
 }
 
@@ -1321,6 +1344,7 @@ async fn start_region_select(app: AppHandle, monitor_index: Option<usize>) -> Re
         .map_err(|e| e.to_string())?;
     let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
     win::set_window_capture_exclusion(&w, !record_app);
+    let _ = w.set_focus();
     Ok(())
 }
 

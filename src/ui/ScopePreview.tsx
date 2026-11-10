@@ -7,8 +7,11 @@ export default function ScopePreview() {
   const [info, setInfo] = useState<ScopePreviewInfo | null>(null)
 
   useEffect(() => {
+    document.documentElement.classList.add('transparent')
     document.body.classList.add('transparent')
     document.body.classList.add('fill-window')
+    const rootEl = document.getElementById('root')
+    if (rootEl) rootEl.classList.add('transparent')
 
     api.getScopePreviewInfo().then(res => {
       if (res) setInfo(res)
@@ -21,8 +24,10 @@ export default function ScopePreview() {
     }
     window.addEventListener('keydown', onKey)
     return () => {
+      document.documentElement.classList.remove('transparent')
       document.body.classList.remove('transparent')
       document.body.classList.remove('fill-window')
+      if (rootEl) rootEl.classList.remove('transparent')
       window.removeEventListener('keydown', onKey)
     }
   }, [])

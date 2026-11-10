@@ -33,6 +33,7 @@ mod imp {
     #[link(name = "user32")]
     extern "system" {
         fn SetWindowDisplayAffinity(hwnd: *mut core::ffi::c_void, dw_affinity: u32) -> i32;
+        fn IsWindow(hwnd: *mut core::ffi::c_void) -> i32;
         fn EnumWindows(lpEnumFunc: unsafe extern "system" fn(*mut core::ffi::c_void, isize) -> i32, lParam: isize) -> i32;
         fn IsWindowVisible(hwnd: *mut core::ffi::c_void) -> i32;
         fn IsIconic(hwnd: *mut core::ffi::c_void) -> i32;
@@ -69,8 +70,17 @@ mod imp {
 
     pub fn set_capture_exclusion(hwnd: isize, exclude: bool) {
         unsafe {
+            let h = hwnd as usize as *mut core::ffi::c_void;
+            if IsWindow(h) == 0 {
+                return;
+            }
+            // Do not apply WDA_EXCLUDEFROMCAPTURE to hidden or minimized windows,
+            // as WebView2/Chromium DirectComposition compositor fails and leaves a blank/white surface.
+            if exclude && (IsWindowVisible(h) == 0 || IsIconic(h) != 0) {
+                return;
+            }
             SetWindowDisplayAffinity(
-                hwnd as usize as *mut core::ffi::c_void,
+                h,
                 if exclude { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE },
             );
         }

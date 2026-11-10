@@ -35,7 +35,7 @@ body {
   user-select: none;
   -webkit-font-smoothing: antialiased;
 }
-body.transparent { background: transparent; }
+html.transparent, body.transparent, #root.transparent { background: transparent !important; }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 input, select { font: inherit; }
 

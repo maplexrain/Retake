@@ -11,8 +11,11 @@ export default function Countdown() {
   const [boot, setBoot] = useState<Bootstrap | null>(null)
 
   useEffect(() => {
+    document.documentElement.classList.add('transparent')
     document.body.classList.add('fill-window')
     document.body.classList.add('transparent')
+    const rootEl = document.getElementById('root')
+    if (rootEl) rootEl.classList.add('transparent')
 
     api.bootstrap()
       .then(b => {
@@ -37,8 +40,10 @@ export default function Countdown() {
     return () => {
       un.forEach(f => f())
       window.removeEventListener('keydown', onKey)
+      document.documentElement.classList.remove('transparent')
       document.body.classList.remove('fill-window')
       document.body.classList.remove('transparent')
+      if (rootEl) rootEl.classList.remove('transparent')
     }
   }, [])
 

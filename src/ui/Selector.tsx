@@ -13,15 +13,21 @@ export default function Selector() {
   rectRef.current = rect
 
   useEffect(() => {
+    document.documentElement.classList.add('transparent')
     document.body.classList.add('transparent')
     document.body.classList.add('fill-window')
+    const rootEl = document.getElementById('root')
+    if (rootEl) rootEl.classList.add('transparent')
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') api.finishRegionSelect(null)
     }
     window.addEventListener('keydown', onKey)
     return () => {
+      document.documentElement.classList.remove('transparent')
       document.body.classList.remove('transparent')
       document.body.classList.remove('fill-window')
+      if (rootEl) rootEl.classList.remove('transparent')
       window.removeEventListener('keydown', onKey)
     }
   }, [])

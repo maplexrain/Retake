@@ -249,6 +249,10 @@ export default function Main() {
 
   // ---- Auto-Fit Window Height to Compact Content ----
   useEffect(() => {
+    // If not in idle phase, the main window is hidden — do not trigger Win32 setSize
+    if (phase.phase !== 'idle') {
+      return
+    }
     const win = getCurrentWindow()
     let last = -1
     const update = () => {
@@ -275,10 +279,8 @@ export default function Main() {
     }
     update()
     window.addEventListener('resize', update)
-    const iv = setInterval(update, 200)
     return () => {
       window.removeEventListener('resize', update)
-      clearInterval(iv)
     }
   }, [boot, showMore, showManifest, phase.phase, manifest, showWindowsDrawer, openDropdownCount])
 
@@ -513,6 +515,10 @@ export default function Main() {
     setProject(p => (p ? { ...p, settings: { ...p.settings, ...fields } } : p))
 
   const start = () => {
+    if (isPreviewingScope) {
+      api.closeScopePreview().catch(() => {})
+      setIsPreviewingScope(false)
+    }
     const targetFile = activeClip ? activeClip.targetFileName : null
     api.recordStart(targetFile).catch(e => toast(String(e), 'err'))
   }
