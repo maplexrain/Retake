@@ -36,6 +36,10 @@ pub struct Settings {
     pub capture_cursor: bool,
     /// Whether to record system audio (WASAPI loopback capture on default render device)
     pub system_audio: bool,
+    /// Whether application windows (main deck, HUD, countdown) are allowed to be recorded.
+    /// Default: false (Retake UI is excluded from recording/screenshots).
+    /// When true: allows all UI to be recorded/screenshotted.
+    pub record_app_windows: bool,
     /// Whether main window is excluded from screen capture (default: true)
     pub exclude_self: bool,
 }
@@ -52,6 +56,7 @@ impl Default for Settings {
             countdown_sec: 3,
             capture_cursor: true,
             system_audio: false,
+            record_app_windows: false,
             exclude_self: true,
         }
     }

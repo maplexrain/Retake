@@ -17,7 +17,8 @@ export interface Settings {
   countdownSec: number
   captureCursor: boolean
   systemAudio: boolean
-  excludeSelf: boolean
+  recordAppWindows: boolean
+  excludeSelf?: boolean
 }
 
 export interface Project {
@@ -25,6 +26,23 @@ export interface Project {
   settings: Settings
   manifestMode?: boolean
   manifestDir?: string | null
+}
+
+export interface AppWindowInfo {
+  hwnd: number
+  title: string
+  processName: string
+  pid: number
+  x: number
+  y: number
+  w: number
+  h: number
+  isMinimized: boolean
+}
+
+export interface ScopePreviewInfo {
+  rect: Region
+  monitor: MonitorInfo
 }
 
 export interface ManifestDirValidation {
@@ -121,4 +139,8 @@ export const api = {
   checkFfmpeg: (path: string | null) => invoke<FfmpegInfo>('check_ffmpeg', { path }),
   listMics: (path: string | null) => invoke<string[]>('list_mics', { path }),
   listMonitors: () => invoke<MonitorInfo[]>('list_monitors'),
+  listAppWindows: () => invoke<AppWindowInfo[]>('list_app_windows'),
+  showScopePreview: (rect: Region) => invoke<void>('show_scope_preview', { rect }),
+  closeScopePreview: () => invoke<void>('close_scope_preview'),
+  getScopePreviewInfo: () => invoke<ScopePreviewInfo | null>('get_scope_preview_info'),
 }

@@ -4,14 +4,15 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window'
 import { open as pickFolderDialog } from '@tauri-apps/plugin-dialog'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { api } from '../api'
-import type { Bootstrap, ManifestItem, MonitorInfo, PhaseView, Project, Recording, RecordingManifest, Region, Settings } from '../api'
+import type { AppWindowInfo, Bootstrap, ManifestItem, MonitorInfo, PhaseView, Project, Recording, RecordingManifest, Region, Settings } from '../api'
 import { clamp, fmtDur } from '../fmt'
 import { useI18n, type I18nKey } from '../i18n'
 import logoSvg from '../assets/logo.svg'
+import { CustomSelect, SelectOption } from './CustomSelect'
 import {
-  CheckIcon, ChevronDownIcon, ChevronRightIcon, CropIcon,
-  FolderIcon, GearIcon, ListIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MouseIcon,
-  PauseIcon, PlayIcon, PlusIcon, RefreshIcon, SpeakerIcon, StopIcon, TrashIcon, XIcon,
+  CheckIcon, ChevronDownIcon, ChevronRightIcon, CropIcon, EyeIcon,
+  FolderIcon, GearIcon, ListIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MonitorIcon, MouseIcon,
+  PauseIcon, PlayIcon, PlusIcon, RefreshIcon, SpeakerIcon, StopIcon, TrashIcon, WindowIcon, XIcon,
 } from './icons'
 
 function sanitizeFileName(name: string): string {
@@ -39,6 +40,12 @@ export default function Main() {
   const [manifest, setManifest] = useState<RecordingManifest | null>(null)
   const [micLevel, setMicLevel] = useState(0)
   const [sysLevel, setSysLevel] = useState(0)
+  const [scopeMode, setScopeMode] = useState<'display' | 'windows' | 'region'>('display')
+  const [appWindows, setAppWindows] = useState<AppWindowInfo[]>([])
+  const [selectedHwnds, setSelectedHwnds] = useState<number[]>([])
+  const [showWindowsDrawer, setShowWindowsDrawer] = useState(false)
+  const [windowSearch, setWindowSearch] = useState('')
+  const [isPreviewingScope, setIsPreviewingScope] = useState(false)
   const toastSeq = useRef(0)
   const skipNextSave = useRef(false)
 
@@ -143,6 +150,7 @@ export default function Main() {
     add<Region>('region://updated', r =>
       setProject(pr => (pr ? { ...pr, settings: { ...pr.settings, region: r } } : pr)),
     )
+    add<void>('scope-preview://closed', () => setIsPreviewingScope(false))
     return () => un.forEach(f => f())
   }, [t, boot?.outputDir])
 
@@ -219,6 +227,76 @@ export default function Main() {
     const bpp = 0.09 * (23 / crf)
     return Math.max(1, Math.round((effRect.w * effRect.h * s.fps * bpp) / 8 * 60 / (1024 * 1024)))
   })()
+
+  // ---- Windows Selection & Scope Preview ----
+  const refreshAppWindows = async () => {
+    try {
+      const wins = await api.listAppWindows()
+      setAppWindows(wins)
+      return wins
+    } catch (e) {
+      console.error('Failed to list windows', e)
+      return []
+    }
+  }
+
+  const applyWindowsRegion = (hwnds: number[], wins: AppWindowInfo[]) => {
+    const selected = wins.filter(w => hwnds.includes(w.hwnd))
+    if (selected.length === 0) {
+      patchSettings({ region: null })
+      return
+    }
+    const minX = Math.min(...selected.map(w => w.x))
+    const minY = Math.min(...selected.map(w => w.y))
+    const maxX = Math.max(...selected.map(w => w.x + w.w))
+    const maxY = Math.max(...selected.map(w => w.y + w.h))
+    const unionRect: Region = {
+      x: minX,
+      y: minY,
+      w: Math.max(16, maxX - minX),
+      h: Math.max(16, maxY - minY),
+    }
+    patchSettings({ region: unionRect, monitor: null })
+  }
+
+  const handleToggleWindow = (hwnd: number) => {
+    const next = selectedHwnds.includes(hwnd)
+      ? selectedHwnds.filter(h => h !== hwnd)
+      : [...selectedHwnds, hwnd]
+    setSelectedHwnds(next)
+    applyWindowsRegion(next, appWindows)
+  }
+
+  const handleSelectAllWindows = () => {
+    const allHwnds = appWindows.map(w => w.hwnd)
+    setSelectedHwnds(allHwnds)
+    applyWindowsRegion(allHwnds, appWindows)
+  }
+
+  const handleClearAllWindows = () => {
+    setSelectedHwnds([])
+    patchSettings({ region: null })
+  }
+
+  const handleToggleScopePreview = async () => {
+    if (isPreviewingScope) {
+      await api.closeScopePreview().catch(() => {})
+      setIsPreviewingScope(false)
+    } else {
+      if (!effRect) {
+        toast(t('hero.errNoScope'), 'err')
+        return
+      }
+      await api.showScopePreview(effRect).catch(err => toast(String(err), 'err'))
+      setIsPreviewingScope(true)
+    }
+  }
+
+  const filteredWindows = appWindows.filter(w => {
+    if (!windowSearch.trim()) return true
+    const q = windowSearch.toLowerCase()
+    return w.title.toLowerCase().includes(q) || w.processName.toLowerCase().includes(q)
+  })
 
   // ---- Manifest Mode & Target Clip ----
   const manifestDir = project?.manifestDir || null
@@ -420,6 +498,17 @@ export default function Main() {
   const clearRegion = () => patchSettings({ region: null })
   const pickMonitor = (idx: number) => patchSettings({ monitor: idx, region: null })
 
+  const monitorOptions: SelectOption<number>[] = monitors.map(m => ({
+    value: m.index,
+    label: `${m.name} (${m.w}×${m.h})`,
+    badge: m.isPrimary ? t('scope.primary') : undefined,
+  }))
+
+  const micOptions: SelectOption<string>[] = mics.map(m => ({
+    value: m,
+    label: m,
+  }))
+
   if (!project || !boot || !s) {
     return <div className="boot-loading">{t('boot.loading')}</div>
   }
@@ -502,31 +591,177 @@ export default function Main() {
           <section className="deck-col scope-col">
             <div className="col-head">
               <span className="col-title">{t('scope.title')}</span>
-              {s.region && <span className="col-tag">{t('scope.customRegion')}</span>}
+              <div className="scope-mode-tabs">
+                <button
+                  className={`scope-mode-tab ${scopeMode === 'display' ? 'active' : ''}`}
+                  onClick={() => {
+                    setScopeMode('display')
+                    setShowWindowsDrawer(false)
+                    if (s.region) {
+                      patchSettings({ region: null, monitor: monitors[0]?.index ?? 0 })
+                    }
+                  }}
+                  title={t('scope.modeDisplay')}
+                >
+                  <MonitorIcon size={12} />
+                  <span>{t('scope.modeDisplay')}</span>
+                </button>
+                <button
+                  className={`scope-mode-tab ${scopeMode === 'windows' ? 'active' : ''}`}
+                  onClick={() => {
+                    setScopeMode('windows')
+                    refreshAppWindows()
+                    setShowWindowsDrawer(true)
+                  }}
+                  title={t('scope.modeWindows')}
+                >
+                  <WindowIcon size={12} />
+                  <span>{t('scope.modeWindows')}</span>
+                </button>
+                <button
+                  className={`scope-mode-tab ${scopeMode === 'region' ? 'active' : ''}`}
+                  onClick={() => {
+                    setScopeMode('region')
+                    setShowWindowsDrawer(false)
+                    startRegion()
+                  }}
+                  title={t('scope.modeRegion')}
+                >
+                  <CropIcon size={12} />
+                  <span>{t('scope.modeRegion')}</span>
+                </button>
+              </div>
             </div>
 
             <div className="col-body">
-              {/* Display / Region Selection Dropdown */}
-              <select
-                className="flat-select"
-                value={s.region ? '__region__' : s.monitor ?? ''}
-                onChange={e => {
-                  const v = e.target.value
-                  if (v === '__region__') startRegion()
-                  else if (v === '') patchSettings({ monitor: null })
-                  else pickMonitor(parseInt(v))
-                }}
-              >
-                <option value="" disabled>{t('scope.selectMonitor')}</option>
-                {monitors.map(m => (
-                  <option key={m.index} value={m.index}>
-                    {m.name} ({m.w}×{m.h}){m.isPrimary ? t('scope.primary') : ''}
-                  </option>
-                ))}
-                {s.region && <option value="__region__">{t('scope.regionLabel', { w: s.region.w, h: s.region.h })}</option>}
-              </select>
+              {scopeMode === 'display' && (
+                <CustomSelect
+                  value={s.monitor ?? 0}
+                  options={monitorOptions}
+                  onChange={v => pickMonitor(Number(v))}
+                  disabled={recording || counting}
+                  placeholder={t('scope.selectMonitor')}
+                />
+              )}
 
-              {/* Resolution & Crop Actions */}
+              {scopeMode === 'windows' && (
+                <div className="windows-scope-picker">
+                  <button
+                    className="windows-picker-btn"
+                    onClick={() => {
+                      refreshAppWindows()
+                      setShowWindowsDrawer(v => !v)
+                    }}
+                    disabled={recording || counting}
+                  >
+                    <div className="windows-picker-btn-left">
+                      <WindowIcon size={13} className="windows-picker-icon" />
+                      <span className="windows-picker-label">
+                        {selectedHwnds.length > 0
+                          ? t('scope.selectedWindowsCount', { count: selectedHwnds.length })
+                          : t('scope.selectWindows')}
+                      </span>
+                    </div>
+                    <ChevronDownIcon size={12} className={`custom-select-arrow ${showWindowsDrawer ? 'rotated' : ''}`} />
+                  </button>
+
+                  {/* Windows Selection Popover */}
+                  {showWindowsDrawer && (
+                    <div className="windows-popover">
+                      <div className="windows-popover-head">
+                        <input
+                          type="text"
+                          className="windows-search-input"
+                          placeholder={t('scope.searchWindows')}
+                          value={windowSearch}
+                          onChange={e => setWindowSearch(e.target.value)}
+                        />
+                        <button
+                          className="ghost-icon-btn"
+                          title={t('scope.refreshWindows')}
+                          onClick={refreshAppWindows}
+                        >
+                          <RefreshIcon size={12} />
+                        </button>
+                      </div>
+
+                      <div className="windows-popover-actions">
+                        <button className="ghost-btn-xs" onClick={handleSelectAllWindows}>
+                          {t('scope.selectAll')}
+                        </button>
+                        <button className="ghost-btn-xs" onClick={handleClearAllWindows}>
+                          {t('scope.clearAll')}
+                        </button>
+                        <span className="windows-count-badge">
+                          {selectedHwnds.length}/{appWindows.length}
+                        </span>
+                      </div>
+
+                      <div className="windows-popover-list">
+                        {filteredWindows.length === 0 ? (
+                          <div className="windows-empty">{t('scope.noWindowsFound')}</div>
+                        ) : (
+                          filteredWindows.map(w => {
+                            const isSelected = selectedHwnds.includes(w.hwnd)
+                            return (
+                              <div
+                                key={w.hwnd}
+                                className={`window-item ${isSelected ? 'selected' : ''}`}
+                                onClick={() => handleToggleWindow(w.hwnd)}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="window-checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                />
+                                <div className="window-info">
+                                  <div className="window-proc-row">
+                                    <span className="window-proc-name">{w.processName || 'Window'}</span>
+                                    <span className="window-dim">{w.w}×{w.h}</span>
+                                  </div>
+                                  <span className="window-title" title={w.title}>{w.title}</span>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {scopeMode === 'region' && (
+                <div className="region-scope-box">
+                  <span className="region-scope-desc">
+                    {s.region
+                      ? t('scope.regionLabel', { w: s.region.w, h: s.region.h })
+                      : t('scope.cropHint')}
+                  </span>
+                  <div className="scope-btn-group">
+                    <button
+                      className="ghost-btn"
+                      onClick={startRegion}
+                      disabled={counting || recording}
+                    >
+                      <CropIcon size={12} />
+                      <span>{t('scope.crop')}</span>
+                    </button>
+                    {s.region && (
+                      <button
+                        className="ghost-btn danger"
+                        onClick={clearRegion}
+                        disabled={recording}
+                      >
+                        {t('scope.clear')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Resolution & Preview Actions */}
               <div className="scope-meta-row">
                 <span className="res-plain-text">
                   <LockIcon size={11} className="res-plain-icon" />
@@ -535,23 +770,14 @@ export default function Main() {
 
                 <div className="scope-btn-group">
                   <button
-                    className="ghost-btn"
-                    onClick={startRegion}
-                    disabled={counting || recording}
-                    title={t('scope.cropHint')}
+                    className={`ghost-btn scope-preview-btn ${isPreviewingScope ? 'active' : ''}`}
+                    onClick={handleToggleScopePreview}
+                    disabled={counting || recording || !effRect}
+                    title={t('scope.previewHint')}
                   >
-                    <CropIcon size={12} />
-                    <span>{t('scope.crop')}</span>
+                    <EyeIcon size={12} />
+                    <span>{isPreviewingScope ? t('scope.previewingScope') : t('scope.previewScope')}</span>
                   </button>
-                  {s.region && (
-                    <button
-                      className="ghost-btn danger"
-                      onClick={clearRegion}
-                      disabled={recording}
-                    >
-                      {t('scope.clear')}
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -576,15 +802,14 @@ export default function Main() {
               {/* Microphone Row */}
               <div className={`audio-row ${s.mic ? 'active' : ''}`}>
                 <MicIcon size={15} className={`audio-row-ico ${s.mic ? 'on' : ''}`} />
-                <select
-                  className="flat-select audio-select"
+                <CustomSelect
+                  className="audio-custom-select"
                   value={s.mic ?? ''}
-                  disabled={!s.mic}
-                  onChange={e => patchSettings({ mic: e.target.value || null })}
-                >
-                  <option value="">{mics.length ? t('audio.selectMic') : t('audio.noMic')}</option>
-                  {mics.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
+                  options={micOptions}
+                  onChange={v => patchSettings({ mic: String(v) || null })}
+                  disabled={!s.mic || recording || counting}
+                  placeholder={mics.length ? t('audio.selectMic') : t('audio.noMic')}
+                />
                 <AudioVisualizer level={micLevel} active={!!s.mic} t={t} />
                 <Switch
                   checked={!!s.mic}
@@ -1012,12 +1237,15 @@ export default function Main() {
                     />
                   </div>
 
-                  <div className="inline-switch-item">
-                    <span className="switch-text">{t('settings.excludeSelf')}</span>
+                  <div className="inline-switch-item app-window-switch-item">
+                    <div className="switch-text-container">
+                      <span className="switch-text">{t('settings.recordAppWindows')}</span>
+                      <span className="switch-hint-desc">{t('settings.recordAppWindowsHint')}</span>
+                    </div>
                     <Switch
-                      checked={s.excludeSelf}
+                      checked={!!s.recordAppWindows}
                       disabled={recording || counting}
-                      onChange={v => patchSettings({ excludeSelf: v })}
+                      onChange={v => patchSettings({ recordAppWindows: v })}
                     />
                   </div>
                 </div>

@@ -19,15 +19,23 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopePreviewInfo {
+    pub rect: Region,
+    pub monitor: MonitorInfo,
+}
+
 pub struct AppState {
     pub project: Mutex<Project>,
     pub recorder: Mutex<Recorder>,
     /// Monitor index currently covered by region selection overlay
     pub region_monitor: Mutex<Option<usize>>,
     pub active_target: Mutex<Option<String>>,
+    pub scope_preview_info: Mutex<Option<ScopePreviewInfo>>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MonitorInfo {
     pub index: usize,
@@ -180,15 +188,18 @@ pub fn output_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn apply_main_exclusion(app: &AppHandle, exclude: bool) {
+fn apply_app_exclusion(app: &AppHandle, record_app_windows: bool) {
+    let exclude = !record_app_windows;
     #[cfg(windows)]
     {
-        if let Some(w) = app.get_webview_window("main") {
-            win::set_window_capture_exclusion(&w, exclude);
+        for label in ["main", "hud", "countdown", "selector", "scope_preview"] {
+            if let Some(w) = app.get_webview_window(label) {
+                win::set_window_capture_exclusion(&w, exclude);
+            }
         }
     }
     #[cfg(not(windows))]
-    let _ = (app, exclude);
+    let _ = (app, record_app_windows);
 }
 
 // ---------------- IPC Commands ----------------
@@ -216,14 +227,15 @@ async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
 }
 
 #[tauri::command]
-fn save_project(app: AppHandle, project: Project) -> Result<(), String> {
+fn save_project(app: AppHandle, mut project: Project) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let exclude = project.settings.exclude_self;
+    let record_app = project.settings.record_app_windows;
+    project.settings.exclude_self = !record_app;
     {
         let mut p = state.project.lock().unwrap();
         *p = project;
     }
-    apply_main_exclusion(&app, exclude);
+    apply_app_exclusion(&app, record_app);
     let p = state.project.lock().unwrap().clone();
     project::save(&app, &p)?;
     emit_project_changed(&app, &p);
@@ -1099,7 +1111,8 @@ fn show_countdown_window(app: &AppHandle, monitor_index: Option<usize>) -> Resul
         .shadow(false)
         .build()
         .map_err(|e| e.to_string())?;
-    win::set_window_capture_exclusion(&w, true);
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
     let _ = w.set_focus();
     Ok(())
 }
@@ -1160,7 +1173,8 @@ fn show_hud_window(app: &AppHandle, capture_rect: &Region, monitor_index: Option
         .shadow(false)
         .build()
         .map_err(|e| e.to_string())?;
-    win::set_window_capture_exclusion(&w, true);
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
     Ok(())
 }
 
@@ -1168,6 +1182,87 @@ fn close_hud_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("hud") {
         let _ = w.close();
     }
+}
+
+#[tauri::command]
+async fn list_app_windows() -> Result<Vec<win::AppWindowInfo>, String> {
+    Ok(win::list_windows())
+}
+
+#[tauri::command]
+async fn show_scope_preview(app: AppHandle, rect: Region) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("scope_preview") {
+        let _ = w.close();
+    }
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    let cx = rect.x + rect.w / 2;
+    let cy = rect.y + rect.h / 2;
+    let (monitor_idx, target_monitor) = monitors
+        .iter()
+        .enumerate()
+        .find(|(_, m)| {
+            let px = m.position().x;
+            let py = m.position().y;
+            let pw = m.size().width as i32;
+            let ph = m.size().height as i32;
+            cx >= px && cx < px + pw && cy >= py && cy < py + ph
+        })
+        .or_else(|| monitors.iter().enumerate().next())
+        .ok_or("No monitor found for scope preview")?;
+
+    let scale = target_monitor.scale_factor();
+    let pos = target_monitor.position();
+    let size = target_monitor.size();
+
+    let mon_info = MonitorInfo {
+        index: monitor_idx,
+        name: target_monitor.name().cloned().unwrap_or_else(|| format!("Display {}", monitor_idx + 1)),
+        x: pos.x,
+        y: pos.y,
+        w: size.width as i32,
+        h: size.height as i32,
+        scale,
+        is_primary: pos.x == 0 && pos.y == 0,
+    };
+
+    let preview_info = ScopePreviewInfo {
+        rect: rect.clone(),
+        monitor: mon_info,
+    };
+
+    *app.state::<AppState>().scope_preview_info.lock().unwrap() = Some(preview_info);
+
+    let w = WebviewWindowBuilder::new(&app, "scope_preview", WebviewUrl::App("index.html#/scope-preview".into()))
+        .title("Retake Scope Preview")
+        .position(pos.x as f64 / scale, pos.y as f64 / scale)
+        .inner_size(size.width as f64 / scale, size.height as f64 / scale)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_scope_preview(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("scope_preview") {
+        let _ = w.close();
+    }
+    *app.state::<AppState>().scope_preview_info.lock().unwrap() = None;
+    let _ = app.emit("scope-preview://closed", ());
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_scope_preview_info(app: AppHandle) -> Result<Option<ScopePreviewInfo>, String> {
+    Ok(app.state::<AppState>().scope_preview_info.lock().unwrap().clone())
 }
 
 #[tauri::command]
@@ -1199,7 +1294,8 @@ async fn start_region_select(app: AppHandle, monitor_index: Option<usize>) -> Re
         .shadow(false)
         .build()
         .map_err(|e| e.to_string())?;
-    win::set_window_capture_exclusion(&w, true);
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
     Ok(())
 }
 
@@ -1361,6 +1457,7 @@ fn main() {
             recorder: Mutex::new(Recorder::new()),
             region_monitor: Mutex::new(None),
             active_target: Mutex::new(None),
+            scope_preview_info: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
@@ -1382,12 +1479,16 @@ fn main() {
             set_active_manifest_target,
             open_manifest_file,
             validate_manifest_dir,
+            list_app_windows,
+            show_scope_preview,
+            close_scope_preview,
+            get_scope_preview_info,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             let p = project::load(&handle);
             *handle.state::<AppState>().project.lock().unwrap() = p.clone();
-            apply_main_exclusion(&handle, p.settings.exclude_self);
+            apply_app_exclusion(&handle, p.settings.record_app_windows);
             let gs = handle.global_shortcut();
             for sc in ["alt+1", "alt+2", "alt+3", "alt+f", "alt+g"] {
                 gs.register(sc).map_err(|e| format!("Failed to register shortcut {sc}: {e}"))?;

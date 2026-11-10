@@ -192,3 +192,20 @@ export const GearIcon = ({ size = 16, className }: P) => (
     <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
   </svg>
 )
+
+export const WindowIcon = ({ size = 16, className }: P) => (
+  <svg {...svgProps(size, className)}>
+    <rect x="2" y="3" width="20" height="18" rx="2" />
+    <path d="M2 8h20" />
+    <circle cx="5" cy="5.5" r="0.7" fill="currentColor" />
+    <circle cx="8" cy="5.5" r="0.7" fill="currentColor" />
+    <circle cx="11" cy="5.5" r="0.7" fill="currentColor" />
+  </svg>
+)
+
+export const EyeIcon = ({ size = 16, className }: P) => (
+  <svg {...svgProps(size, className)}>
+    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+)
