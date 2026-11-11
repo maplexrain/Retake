@@ -49,6 +49,7 @@ mod imp {
     #[link(name = "dwmapi")]
     extern "system" {
         fn DwmGetWindowAttribute(hwnd: *mut core::ffi::c_void, dwAttribute: u32, pvAttribute: *mut core::ffi::c_void, cbAttribute: u32) -> i32;
+        pub fn DwmFlush() -> i32;
     }
 
     #[link(name = "kernel32")]
@@ -258,7 +259,12 @@ pub fn list_windows() -> Vec<AppWindowInfo> {
     Vec::new()
 }
 
-#[cfg(not(windows))]
-pub fn get_window_bounds(_hwnd: isize) -> Option<(i32, i32, i32, i32)> {
-    None
+#[cfg(windows)]
+pub fn flush_dwm() {
+    unsafe {
+        let _ = imp::DwmFlush();
+    }
 }
+
+#[cfg(not(windows))]
+pub fn flush_dwm() {}

@@ -33,6 +33,7 @@ pub struct AppState {
     pub region_monitor: Mutex<Option<usize>>,
     pub active_target: Mutex<Option<String>>,
     pub scope_preview_info: Mutex<Option<ScopePreviewInfo>>,
+    pub main_window_pos: Mutex<Option<(i32, i32)>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -128,19 +129,32 @@ fn emit_phase(app: &AppHandle) {
 
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        if let Some((x, y)) = *app.state::<AppState>().main_window_pos.lock().unwrap() {
+            let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        } else {
+            let _ = w.center();
+        }
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
         let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
         win::set_window_capture_exclusion(&w, !record_app);
+        win::flush_dwm();
     }
 }
 
 fn hide_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        // Clear capture exclusion before hiding so WebView2 compositor doesn't break into a white surface
-        win::set_window_capture_exclusion(&w, false);
+        if let Ok(pos) = w.outer_position() {
+            if pos.x > -10000 && pos.y > -10000 {
+                *app.state::<AppState>().main_window_pos.lock().unwrap() = Some((pos.x, pos.y));
+            }
+        }
+        // Move window far off-screen before hiding so WebView2/DWM compositor leaves zero visible artifact
+        let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: -32000, y: -32000 }));
         let _ = w.hide();
+        win::set_window_capture_exclusion(&w, false);
+        win::flush_dwm();
     }
 }
 
@@ -1163,7 +1177,10 @@ fn show_countdown_window(app: &AppHandle, monitor_index: Option<usize>) -> Resul
 
 fn close_countdown_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("countdown") {
+        let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: -32000, y: -32000 }));
+        let _ = w.hide();
         let _ = w.close();
+        win::flush_dwm();
     }
 }
 
@@ -1225,7 +1242,10 @@ fn show_hud_window(app: &AppHandle, capture_rect: &Region, monitor_index: Option
 
 fn close_hud_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("hud") {
+        let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: -32000, y: -32000 }));
+        let _ = w.hide();
         let _ = w.close();
+        win::flush_dwm();
     }
 }
 
@@ -1510,6 +1530,7 @@ fn main() {
             region_monitor: Mutex::new(None),
             active_target: Mutex::new(None),
             scope_preview_info: Mutex::new(None),
+            main_window_pos: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
