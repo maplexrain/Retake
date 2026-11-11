@@ -4,7 +4,7 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window'
 import { open as pickFolderDialog } from '@tauri-apps/plugin-dialog'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { api } from '../api'
-import type { AppWindowInfo, Bootstrap, ManifestItem, MonitorInfo, PhaseView, Project, Recording, RecordingManifest, Region, Settings } from '../api'
+import type { Bootstrap, ManifestItem, MonitorInfo, PhaseView, Project, Recording, RecordingManifest, Region, Settings } from '../api'
 import { clamp, fmtDur } from '../fmt'
 import { useI18n, type I18nKey } from '../i18n'
 import logoSvg from '../assets/logo.svg'
@@ -12,7 +12,7 @@ import { CustomSelect, SelectOption } from './CustomSelect'
 import {
   CheckIcon, ChevronDownIcon, ChevronRightIcon, CropIcon, EyeIcon,
   FolderIcon, GearIcon, ListIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MonitorIcon, MouseIcon,
-  PauseIcon, PlayIcon, PlusIcon, RefreshIcon, SpeakerIcon, StopIcon, TrashIcon, WindowIcon, XIcon,
+  PauseIcon, PlayIcon, PlusIcon, RefreshIcon, SpeakerIcon, StopIcon, TrashIcon, XIcon,
 } from './icons'
 
 function sanitizeFileName(name: string): string {
@@ -40,14 +40,9 @@ export default function Main() {
   const [manifest, setManifest] = useState<RecordingManifest | null>(null)
   const [micLevel, setMicLevel] = useState(0)
   const [sysLevel, setSysLevel] = useState(0)
-  const [scopeMode, setScopeMode] = useState<'display' | 'windows' | 'region'>('display')
-  const [appWindows, setAppWindows] = useState<AppWindowInfo[]>([])
-  const [selectedHwnd, setSelectedHwnd] = useState<number | null>(null)
-  const [showWindowsDrawer, setShowWindowsDrawer] = useState(false)
-  const [windowSearch, setWindowSearch] = useState('')
+  const [scopeMode, setScopeMode] = useState<'display' | 'region'>('display')
   const [isPreviewingScope, setIsPreviewingScope] = useState(false)
-  const [openDropdownCount, setOpenDropdownCount] = useState(0)
-  const windowsPickerRef = useRef<HTMLDivElement>(null)
+  const lastMicRef = useRef<string | null>(null)
   const toastSeq = useRef(0)
   const skipNextSave = useRef(false)
   const lastToastText = useRef<string>('')
@@ -55,30 +50,12 @@ export default function Main() {
   const tRef = useRef(t)
   useEffect(() => { tRef.current = t }, [t])
   const projectRef = useRef(project)
-  useEffect(() => { projectRef.current = project }, [project])
-
-  const handleDropdownOpenChange = (isOpen: boolean) => {
-    setOpenDropdownCount(n => isOpen ? n + 1 : Math.max(0, n - 1))
-  }
-
-  // Close windows popover on click outside or Escape
   useEffect(() => {
-    if (!showWindowsDrawer) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (windowsPickerRef.current && !windowsPickerRef.current.contains(e.target as Node)) {
-        setShowWindowsDrawer(false)
-      }
+    projectRef.current = project
+    if (project?.settings?.mic) {
+      lastMicRef.current = project.settings.mic
     }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowWindowsDrawer(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [showWindowsDrawer])
+  }, [project])
 
   const toast = (text: string, kind: Toast['kind'] = 'info') => {
     const now = Date.now()
@@ -131,11 +108,7 @@ export default function Main() {
         setPhase(b.phase)
         setMics(b.mics)
         setMonitors(b.monitors)
-        if (p.settings.captureMode === 'window' && p.settings.windowHwnd) {
-          setScopeMode('windows')
-          setSelectedHwnd(p.settings.windowHwnd)
-          api.listAppWindows().then(setAppWindows).catch(() => {})
-        } else if (p.settings.region) {
+        if (p.settings.region) {
           setScopeMode('region')
         } else {
           setScopeMode('display')
@@ -266,13 +239,7 @@ export default function Main() {
         const appEl = document.querySelector('.app') as HTMLElement | null
         h = appEl ? appEl.scrollHeight : 230
       }
-      let minH = 200
-      if (showWindowsDrawer) {
-        minH = Math.max(minH, 440)
-      } else if (openDropdownCount > 0) {
-        minH = Math.max(minH, 320)
-      }
-      h = Math.max(minH, Math.ceil(h))
+      h = Math.max(200, Math.ceil(h))
       if (Math.abs(h - last) <= 1) return
       last = h
       void win.setSize(new LogicalSize(window.innerWidth, h))
@@ -282,7 +249,7 @@ export default function Main() {
     return () => {
       window.removeEventListener('resize', update)
     }
-  }, [boot, showMore, showManifest, phase.phase, manifest, showWindowsDrawer, openDropdownCount])
+  }, [boot, showMore, showManifest, phase.phase, manifest])
 
   // ---- Derived Values ----
   const ffmpegOk = boot?.ffmpeg.found ?? false
@@ -291,13 +258,8 @@ export default function Main() {
   const counting = phase.phase === 'countdown'
   const s = project?.settings
   const monitor = s?.monitor != null ? monitors.find(m => m.index === s.monitor) ?? null : null
-  const activeTargetHwnd = s?.windowHwnd ?? selectedHwnd
-  const activeTargetWindow = appWindows.find(w => w.hwnd === activeTargetHwnd) ?? null
-
-  const effRect = scopeMode === 'windows'
-    ? (activeTargetWindow ? { x: activeTargetWindow.x, y: activeTargetWindow.y, w: activeTargetWindow.w, h: activeTargetWindow.h } : s?.region ?? null)
-    : (s?.region ?? (monitor ? { x: monitor.x, y: monitor.y, w: monitor.w, h: monitor.h } : null))
-  const scopeReady = scopeMode === 'windows' ? !!activeTargetHwnd : !!effRect
+  const effRect = s?.region ?? (monitor ? { x: monitor.x, y: monitor.y, w: monitor.w, h: monitor.h } : null)
+  const scopeReady = !!effRect
   const canStart = ffmpegOk && scopeReady && !recording && !counting && !paused && !busy
 
   const estimateMB = (() => {
@@ -307,50 +269,12 @@ export default function Main() {
     return Math.max(1, Math.round((effRect.w * effRect.h * s.fps * bpp) / 8 * 60 / (1024 * 1024)))
   })()
 
-  // ---- Windows Selection & Scope Preview ----
-  const refreshAppWindows = async () => {
-    try {
-      const wins = await api.listAppWindows()
-      setAppWindows(wins)
-      return wins
-    } catch (e) {
-      console.error('Failed to list windows', e)
-      return []
-    }
-  }
-
-  const handleSelectTargetWindow = (w: AppWindowInfo) => {
-    setSelectedHwnd(w.hwnd)
-    setShowWindowsDrawer(false)
-    patchSettings({
-      captureMode: 'window',
-      windowHwnd: w.hwnd,
-      windowTitle: w.title,
-      region: { x: w.x, y: w.y, w: w.w, h: w.h },
-      monitor: null,
-    })
-  }
-
+  // ---- Scope Preview ----
   const handleToggleScopePreview = async () => {
     if (isPreviewingScope) {
       await api.closeScopePreview().catch(() => {})
       setIsPreviewingScope(false)
     } else {
-      if (scopeMode === 'windows') {
-        const hwnd = activeTargetHwnd
-        if (!hwnd) {
-          toast(t('scope.noWindowsSelected'), 'err')
-          return
-        }
-        const bounds = await api.getAppWindowBounds(hwnd).catch(() => null)
-        if (!bounds) {
-          toast(t('scope.noWindowsFound'), 'err')
-          return
-        }
-        await api.showScopePreview(bounds).catch(err => toast(String(err), 'err'))
-        setIsPreviewingScope(true)
-        return
-      }
       if (!effRect) {
         toast(t('hero.errNoScope'), 'err')
         return
@@ -360,11 +284,19 @@ export default function Main() {
     }
   }
 
-  const filteredWindows = appWindows.filter(w => {
-    if (!windowSearch.trim()) return true
-    const q = windowSearch.toLowerCase()
-    return w.title.toLowerCase().includes(q) || w.processName.toLowerCase().includes(q)
-  })
+  // Format auto target filename for manifest items: 01_<title>.mp4
+  const formatAutoTargetFileName = (indexOneBased: number, rawName: string): string => {
+    const pad = indexOneBased < 10 ? `0${indexOneBased}` : `${indexOneBased}`
+    let clean = (rawName || '').trim()
+    clean = clean.replace(/\.[a-zA-Z0-9]+$/, '')
+    clean = clean.replace(new RegExp(`^0*${indexOneBased}_`), '')
+    clean = clean.trim()
+    if (!clean) {
+      clean = `Clip ${pad}`
+    }
+    clean = clean.replace(/[<>:"/\\|?*]/g, '_')
+    return `${pad}_${clean}.mp4`
+  }
 
   // ---- Manifest Mode & Target Clip ----
   const manifestDir = project?.manifestDir || null
@@ -390,14 +322,14 @@ export default function Main() {
           items: [
             {
               id: 'clip_01',
-              title: '01 Intro',
-              targetFileName: '01_intro.mp4',
+              title: 'Clip 01',
+              targetFileName: '01_Clip 01.mp4',
               status: 'pending',
             },
             {
               id: 'clip_02',
-              title: '02 Content',
-              targetFileName: '02_content.mp4',
+              title: 'Clip 02',
+              targetFileName: '02_Clip 02.mp4',
               status: 'pending',
             },
           ],
@@ -462,10 +394,11 @@ export default function Main() {
     if (!manifest || !manifestDir) return
     const idx = manifest.items.length + 1
     const pad = idx < 10 ? `0${idx}` : `${idx}`
+    const title = `Clip ${pad}`
     const newItem: ManifestItem = {
       id: `clip_${Date.now()}`,
-      title: `Clip ${pad}`,
-      targetFileName: `clip_${pad}.mp4`,
+      title,
+      targetFileName: formatAutoTargetFileName(idx, title),
       status: 'pending',
     }
     const updated = { ...manifest, items: [...manifest.items, newItem] }
@@ -570,11 +503,14 @@ export default function Main() {
   const clearRegion = () => patchSettings({ region: null })
   const pickMonitor = (idx: number) => patchSettings({ monitor: idx, region: null })
 
-  const monitorOptions: SelectOption<number>[] = monitors.map(m => ({
-    value: m.index,
-    label: `${m.name} (${m.w}×${m.h})`,
-    badge: m.isPrimary ? t('scope.primary') : undefined,
-  }))
+  const monitorOptions: SelectOption<number>[] = monitors.map(m => {
+    const orient = m.w >= m.h ? t('scope.landscape') : t('scope.portrait')
+    return {
+      value: m.index,
+      label: `${m.name} (${m.w}×${m.h}) [${orient}]`,
+      badge: m.isPrimary ? t('scope.primary') : undefined,
+    }
+  })
 
   const micOptions: SelectOption<string>[] = mics.map(m => ({
     value: m,
@@ -592,31 +528,6 @@ export default function Main() {
         <div className="brand" data-tauri-drag-region>
           <img src={logoSvg} alt="Retake" className="brand-logo-img" data-tauri-drag-region />
           <span className="brand-name" data-tauri-drag-region>Retake</span>
-          <span className="brand-badge" data-tauri-drag-region>{t('brand.badge')}</span>
-        </div>
-
-        {/* Dynamic Recording Status Badge */}
-        <div className="titlebar-status" data-tauri-drag-region>
-          {recording ? (
-            <div className="status-pill recording">
-              <span className="rec-beacon" />
-              <span>{t('status.recording', { time: fmtDur(elapsed) })}</span>
-            </div>
-          ) : paused ? (
-            <div className="status-pill paused">
-              <span>{t('status.paused', { time: fmtDur(elapsed) })}</span>
-            </div>
-          ) : counting ? (
-            <div className="status-pill counting">
-              <span>{t('status.counting', { sec: countdown })}</span>
-            </div>
-          ) : (
-            <div className="status-pill ready">
-              <span className="ready-dot" />
-              <span>{t('status.ready')}</span>
-              {effRect && <span className="res-tag">{effRect.w}×{effRect.h}</span>}
-            </div>
-          )}
         </div>
 
         {/* Titlebar Actions */}
@@ -660,7 +571,7 @@ export default function Main() {
       <main className="deck">
         <div className="deck-grid">
           {/* Section 1: Capture Scope */}
-          <section className={`deck-col scope-col ${showWindowsDrawer ? 'has-active-popover' : ''}`}>
+          <section className="deck-col scope-col">
             <div className="col-head">
               <span className="col-title">{t('scope.title')}</span>
               <div className="scope-mode-tabs">
@@ -668,13 +579,9 @@ export default function Main() {
                   className={`scope-mode-tab ${scopeMode === 'display' ? 'active' : ''}`}
                   onClick={() => {
                     setScopeMode('display')
-                    setShowWindowsDrawer(false)
-                    setSelectedHwnd(null)
                     patchSettings({
                       captureMode: 'display',
                       region: null,
-                      windowHwnd: null,
-                      windowTitle: null,
                       monitor: s?.monitor ?? monitors[0]?.index ?? 0,
                     })
                   }}
@@ -683,31 +590,11 @@ export default function Main() {
                   <MonitorIcon size={13} />
                 </button>
                 <button
-                  className={`scope-mode-tab ${scopeMode === 'windows' ? 'active' : ''}`}
-                  onClick={() => {
-                    setScopeMode('windows')
-                    refreshAppWindows()
-                    setShowWindowsDrawer(true)
-                    patchSettings({
-                      captureMode: 'window',
-                      region: null,
-                      monitor: null,
-                    })
-                  }}
-                  title={t('scope.modeWindows')}
-                >
-                  <WindowIcon size={13} />
-                </button>
-                <button
                   className={`scope-mode-tab ${scopeMode === 'region' ? 'active' : ''}`}
                   onClick={() => {
                     setScopeMode('region')
-                    setShowWindowsDrawer(false)
-                    setSelectedHwnd(null)
                     patchSettings({
                       captureMode: 'region',
-                      windowHwnd: null,
-                      windowTitle: null,
                     })
                     startRegion()
                   }}
@@ -724,100 +611,9 @@ export default function Main() {
                   value={s.monitor ?? 0}
                   options={monitorOptions}
                   onChange={v => pickMonitor(Number(v))}
-                  onOpenChange={handleDropdownOpenChange}
                   disabled={recording || counting}
                   placeholder={t('scope.selectMonitor')}
                 />
-              )}
-
-              {scopeMode === 'windows' && (
-                <div ref={windowsPickerRef} className={`windows-scope-picker ${showWindowsDrawer ? 'open' : ''}`}>
-                  <button
-                    className={`windows-picker-btn ${activeTargetWindow ? 'has-target' : ''}`}
-                    onClick={() => {
-                      refreshAppWindows()
-                      setShowWindowsDrawer(v => !v)
-                    }}
-                    disabled={recording || counting}
-                    title={activeTargetWindow ? `${activeTargetWindow.processName} - ${activeTargetWindow.title}` : t('scope.selectWindows')}
-                  >
-                    <div className="windows-picker-btn-left">
-                      <WindowIcon size={13} className="windows-picker-icon" />
-                      <span className="windows-picker-label">
-                        {activeTargetWindow
-                          ? `${activeTargetWindow.processName || 'Window'} (${activeTargetWindow.w}×${activeTargetWindow.h})`
-                          : t('scope.selectWindows')}
-                      </span>
-                      {activeTargetWindow && (
-                        <span className="windows-target-badge" title={activeTargetWindow.title}>
-                          {t('scope.lockedWindow')}
-                        </span>
-                      )}
-                    </div>
-                    <ChevronDownIcon size={12} className={`custom-select-arrow ${showWindowsDrawer ? 'rotated' : ''}`} />
-                  </button>
-
-                  {/* Windows Selection Popover */}
-                  {showWindowsDrawer && (
-                    <div className="windows-popover">
-                      <div className="windows-popover-head">
-                        <input
-                          type="text"
-                          className="windows-search-input"
-                          placeholder={t('scope.searchWindows')}
-                          value={windowSearch}
-                          onChange={e => setWindowSearch(e.target.value)}
-                        />
-                        <button
-                          className="ghost-icon-btn"
-                          title={t('scope.refreshWindows')}
-                          onClick={refreshAppWindows}
-                        >
-                          <RefreshIcon size={12} />
-                        </button>
-                      </div>
-
-                      <div className="windows-popover-actions">
-                        <span className="windows-desc-hint" title={t('scope.windowsDrawerTitle')}>
-                          {t('scope.windowsDrawerTitle')}
-                        </span>
-                        <span className="windows-count-badge">
-                          {t('scope.windowsFoundCount', { count: filteredWindows.length })}
-                        </span>
-                      </div>
-
-                      <div className="windows-popover-list">
-                        {filteredWindows.length === 0 ? (
-                          <div className="windows-empty">{t('scope.noWindowsFound')}</div>
-                        ) : (
-                          filteredWindows.map(w => {
-                            const isSelected = activeTargetHwnd === w.hwnd
-                            return (
-                              <div
-                                key={w.hwnd}
-                                className={`window-item ${isSelected ? 'selected' : ''}`}
-                                onClick={() => handleSelectTargetWindow(w)}
-                              >
-                                <div className="window-info">
-                                  <div className="window-proc-row">
-                                    <span className="window-proc-name">{w.processName || 'Window'}</span>
-                                    <span className="window-dim">{w.w}×{w.h}</span>
-                                    {isSelected && (
-                                      <span className="window-selected-tag">
-                                        ✓ {t('scope.lockedWindow')}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="window-title" title={w.title}>{w.title}</span>
-                                </div>
-                              </div>
-                            )
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
               )}
 
               {scopeMode === 'region' && (
@@ -850,11 +646,16 @@ export default function Main() {
                 </div>
               )}
 
-              {/* Resolution & Preview Actions */}
+              {/* Resolution & Orientation & Preview Actions */}
               <div className="scope-meta-row">
                 <span className="res-plain-text">
                   <LockIcon size={11} className="res-plain-icon" />
                   <span>{effRect ? `${effRect.w} × ${effRect.h}` : '—'}</span>
+                  {effRect && (
+                    <span className={`scope-orient-tag ${effRect.w >= effRect.h ? 'landscape' : 'portrait'}`}>
+                      {effRect.w >= effRect.h ? t('scope.landscape') : t('scope.portrait')}
+                    </span>
+                  )}
                 </span>
 
                 <div className="scope-btn-group">
@@ -888,39 +689,54 @@ export default function Main() {
             <div className="col-body audio-rows">
               {/* Microphone Row */}
               <div className={`audio-row ${s.mic ? 'active' : ''}`}>
-                <MicIcon size={15} className={`audio-row-ico ${s.mic ? 'on' : ''}`} />
+                <button
+                  type="button"
+                  className={`audio-btn-ico ${s.mic ? 'on' : 'off'}`}
+                  disabled={recording || counting}
+                  onClick={() => {
+                    if (s.mic) {
+                      lastMicRef.current = s.mic
+                      patchSettings({ mic: null })
+                    } else {
+                      const nextMic = (lastMicRef.current && mics.includes(lastMicRef.current))
+                        ? lastMicRef.current
+                        : (mics[0] ?? '')
+                      patchSettings({ mic: nextMic || null })
+                    }
+                  }}
+                  title={s.mic ? t('audio.toggleMicOff') : t('audio.toggleMicOn')}
+                >
+                  <MicIcon size={15} />
+                </button>
                 <CustomSelect
-                  className="audio-custom-select"
+                  className={`audio-custom-select ${!s.mic ? 'dimmed' : ''}`}
                   value={s.mic ?? ''}
                   options={micOptions}
-                  onChange={v => patchSettings({ mic: String(v) || null })}
-                  onOpenChange={handleDropdownOpenChange}
+                  onChange={v => {
+                    const val = String(v) || null
+                    lastMicRef.current = val
+                    patchSettings({ mic: val })
+                  }}
                   disabled={!s.mic || recording || counting}
                   placeholder={mics.length ? t('audio.selectMic') : t('audio.noMic')}
-                />
-                <AudioVisualizer level={micLevel} active={!!s.mic} t={t} />
-                <Switch
-                  checked={!!s.mic}
-                  disabled={recording || counting}
-                  onChange={v => patchSettings({ mic: v ? (mics[0] ?? '') : null })}
-                  title={s.mic ? t('audio.toggleMicOff') : t('audio.toggleMicOn')}
                 />
               </div>
 
               {/* System Audio Row */}
               <div className={`audio-row ${s.systemAudio ? 'active' : ''}`}>
-                <SpeakerIcon size={15} className={`audio-row-ico ${s.systemAudio ? 'on' : ''}`} />
+                <button
+                  type="button"
+                  className={`audio-btn-ico ${s.systemAudio ? 'on' : 'off'}`}
+                  disabled={recording || counting}
+                  onClick={() => patchSettings({ systemAudio: !s.systemAudio })}
+                  title={s.systemAudio ? t('audio.toggleSysOff') : t('audio.toggleSysOn')}
+                >
+                  <SpeakerIcon size={15} />
+                </button>
                 <div className="audio-row-name">
                   <span>{t('audio.system')}</span>
                   <span className="audio-wasapi-tip">WASAPI</span>
                 </div>
-                <AudioVisualizer level={sysLevel} active={!!s.systemAudio} t={t} />
-                <Switch
-                  checked={!!s.systemAudio}
-                  disabled={recording || counting}
-                  onChange={v => patchSettings({ systemAudio: v })}
-                  title={s.systemAudio ? t('audio.toggleSysOff') : t('audio.toggleSysOn')}
-                />
               </div>
             </div>
           </section>
@@ -1142,8 +958,7 @@ export default function Main() {
                 <div className="manifest-table">
                   <div className="manifest-thead">
                     <div className="th-col th-radio">#</div>
-                    <div className="th-col th-title">{t('manifest.clipTitle')}</div>
-                    <div className="th-col th-file">{t('manifest.clipFile')}</div>
+                    <div className="th-col th-name">{t('manifest.clipName')}</div>
                     <div className="th-col th-status">{t('manifest.statusRecorded')} / {t('manifest.statusPending')}</div>
                     <div className="th-col th-actions"></div>
                   </div>
@@ -1165,30 +980,21 @@ export default function Main() {
                             <span className="row-num">{idx + 1}</span>
                           </div>
 
-                          {/* Inline Title Editor */}
-                          <div className="td-col td-title">
+                          {/* Merged Clip Name & Auto Filename */}
+                          <div className="td-col td-name">
                             <input
-                              className="flat-input inline-text"
+                              className="flat-input inline-name"
                               value={item.title}
-                              placeholder={t('manifest.clipTitle')}
-                              onChange={e => handleUpdateClip(item.id, { title: e.target.value })}
-                            />
-                          </div>
-
-                          {/* Inline File Name Editor */}
-                          <div className="td-col td-file">
-                            <input
-                              className="flat-input inline-file"
-                              value={item.targetFileName}
-                              placeholder="clip.mp4"
-                              onChange={e => handleUpdateClip(item.id, { targetFileName: e.target.value })}
-                              onBlur={e => {
-                                const sanitized = sanitizeFileName(e.target.value)
-                                if (sanitized !== e.target.value) {
-                                  handleUpdateClip(item.id, { targetFileName: sanitized })
-                                }
+                              placeholder={t('manifest.clipNamePlaceholder')}
+                              onChange={e => {
+                                const newTitle = e.target.value
+                                const newTarget = formatAutoTargetFileName(idx + 1, newTitle)
+                                handleUpdateClip(item.id, { title: newTitle, targetFileName: newTarget })
                               }}
                             />
+                            <span className="inline-file-tag" title={item.targetFileName}>
+                              {item.targetFileName}
+                            </span>
                           </div>
 
                           {/* Status & Duration */}

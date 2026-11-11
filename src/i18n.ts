@@ -56,6 +56,8 @@ export const translations = {
     'scope.previewTitle': 'Recording Bounds Preview',
     'scope.closePreview': 'Close Preview',
     'scope.previewHint': 'Display real-time highlight boundary frame on screen',
+    'scope.landscape': 'Landscape',
+    'scope.portrait': 'Portrait',
 
     // Audio
     'audio.title': 'Audio Capture',
@@ -187,6 +189,8 @@ export const translations = {
     'manifest.reload': 'Reload',
     'manifest.addItem': 'Add Clip',
     'manifest.empty': 'No clips in manifest. Click "Add Clip" to get started.',
+    'manifest.clipName': 'Clip Name / File',
+    'manifest.clipNamePlaceholder': 'Enter clip name...',
     'manifest.clipTitle': 'Clip title / description...',
     'manifest.clipFile': 'target_name.mp4',
     'manifest.delete': 'Delete clip',
@@ -249,6 +253,8 @@ export const translations = {
     'scope.previewTitle': '录制范围预览',
     'scope.closePreview': '关闭预览',
     'scope.previewHint': '在屏幕上高亮显示当前录制区域的外框',
+    'scope.landscape': '横屏',
+    'scope.portrait': '竖屏',
 
     // Audio
     'audio.title': '音频收声',
@@ -380,6 +386,8 @@ export const translations = {
     'manifest.reload': '刷新',
     'manifest.addItem': '添加片段',
     'manifest.empty': '清单中暂无片段，点击“添加片段”开始规划。',
+    'manifest.clipName': '片段名称',
+    'manifest.clipNamePlaceholder': '输入片段名称…',
     'manifest.clipTitle': '片段名称/说明…',
     'manifest.clipFile': '目标文件名.mp4',
     'manifest.delete': '删除此项',
