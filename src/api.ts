@@ -17,7 +17,11 @@ export interface Settings {
   countdownSec: number
   captureCursor: boolean
   systemAudio: boolean
-  excludeSelf: boolean
+  captureMode?: 'display' | 'region' | 'window'
+  windowHwnd?: number | null
+  windowTitle?: string | null
+  recordAppWindows: boolean
+  excludeSelf?: boolean
 }
 
 export interface Project {
@@ -25,6 +29,23 @@ export interface Project {
   settings: Settings
   manifestMode?: boolean
   manifestDir?: string | null
+}
+
+export interface AppWindowInfo {
+  hwnd: number
+  title: string
+  processName: string
+  pid: number
+  x: number
+  y: number
+  w: number
+  h: number
+  isMinimized: boolean
+}
+
+export interface ScopePreviewInfo {
+  rect: Region
+  monitor: MonitorInfo
 }
 
 export interface ManifestDirValidation {
@@ -100,6 +121,7 @@ export const api = {
     invoke<void>('record_start', { targetFilename: targetFilename ?? null }),
   recordStop: () => invoke<Recording>('record_stop'),
   recordCancel: () => invoke<void>('record_cancel'),
+  recordSkipCountdown: () => invoke<void>('record_skip_countdown'),
   recordPauseResume: () => invoke<void>('record_pause_resume'),
   recordCheckpoint: () => invoke<void>('record_checkpoint'),
   recordRollback: () => invoke<void>('record_rollback'),
@@ -121,4 +143,9 @@ export const api = {
   checkFfmpeg: (path: string | null) => invoke<FfmpegInfo>('check_ffmpeg', { path }),
   listMics: (path: string | null) => invoke<string[]>('list_mics', { path }),
   listMonitors: () => invoke<MonitorInfo[]>('list_monitors'),
+  listAppWindows: () => invoke<AppWindowInfo[]>('list_app_windows'),
+  getAppWindowBounds: (hwnd: number) => invoke<Region | null>('get_app_window_bounds', { hwnd }),
+  showScopePreview: (rect: Region) => invoke<void>('show_scope_preview', { rect }),
+  closeScopePreview: () => invoke<void>('close_scope_preview'),
+  getScopePreviewInfo: () => invoke<ScopePreviewInfo | null>('get_scope_preview_info'),
 }

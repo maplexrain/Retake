@@ -8,7 +8,7 @@ mod win;
 
 use ffmpeg_util::FfmpegInfo;
 use project::{Project, Recording, Region};
-use recorder::{Phase, Recorder, Session};
+use recorder::{CountdownControl, Phase, Recorder, Session};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
@@ -19,15 +19,24 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopePreviewInfo {
+    pub rect: Region,
+    pub monitor: MonitorInfo,
+}
+
 pub struct AppState {
     pub project: Mutex<Project>,
     pub recorder: Mutex<Recorder>,
     /// Monitor index currently covered by region selection overlay
     pub region_monitor: Mutex<Option<usize>>,
     pub active_target: Mutex<Option<String>>,
+    pub scope_preview_info: Mutex<Option<ScopePreviewInfo>>,
+    pub main_window_pos: Mutex<Option<(i32, i32)>>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MonitorInfo {
     pub index: usize,
@@ -120,15 +129,32 @@ fn emit_phase(app: &AppHandle) {
 
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        if let Some((x, y)) = *app.state::<AppState>().main_window_pos.lock().unwrap() {
+            let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        } else {
+            let _ = w.center();
+        }
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+        win::set_window_capture_exclusion(&w, !record_app);
+        win::flush_dwm();
     }
 }
 
 fn hide_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        if let Ok(pos) = w.outer_position() {
+            if pos.x > -10000 && pos.y > -10000 {
+                *app.state::<AppState>().main_window_pos.lock().unwrap() = Some((pos.x, pos.y));
+            }
+        }
+        // Move window far off-screen before hiding so WebView2/DWM compositor leaves zero visible artifact
+        let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: -32000, y: -32000 }));
         let _ = w.hide();
+        win::set_window_capture_exclusion(&w, false);
+        win::flush_dwm();
     }
 }
 
@@ -180,15 +206,20 @@ pub fn output_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn apply_main_exclusion(app: &AppHandle, exclude: bool) {
+fn apply_app_exclusion(app: &AppHandle, record_app_windows: bool) {
+    let exclude = !record_app_windows;
     #[cfg(windows)]
     {
-        if let Some(w) = app.get_webview_window("main") {
-            win::set_window_capture_exclusion(&w, exclude);
+        for label in ["main", "hud", "countdown", "selector", "scope_preview"] {
+            if let Some(w) = app.get_webview_window(label) {
+                if w.is_visible().unwrap_or(false) {
+                    win::set_window_capture_exclusion(&w, exclude);
+                }
+            }
         }
     }
     #[cfg(not(windows))]
-    let _ = (app, exclude);
+    let _ = (app, record_app_windows);
 }
 
 // ---------------- IPC Commands ----------------
@@ -216,14 +247,15 @@ async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
 }
 
 #[tauri::command]
-fn save_project(app: AppHandle, project: Project) -> Result<(), String> {
+fn save_project(app: AppHandle, mut project: Project) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let exclude = project.settings.exclude_self;
+    let record_app = project.settings.record_app_windows;
+    project.settings.exclude_self = !record_app;
     {
         let mut p = state.project.lock().unwrap();
         *p = project;
     }
-    apply_main_exclusion(&app, exclude);
+    apply_app_exclusion(&app, record_app);
     let p = state.project.lock().unwrap().clone();
     project::save(&app, &p)?;
     emit_project_changed(&app, &p);
@@ -260,16 +292,16 @@ fn spawn_part(ses: &mut Session) -> Result<(), String> {
 /// Finish current segment (retain files for final concatenation)
 fn finish_part(ses: &mut Session, timeout_ms: u64) -> Result<(), String> {
     if let Some(mut h) = ses.cur.take() {
-        ffmpeg_util::finish(&mut h.child, &mut h.stdin, &h.tail, timeout_ms);
+        ffmpeg_util::finish(&mut h, timeout_ms);
         let size = std::fs::metadata(&h.out).map(|m| m.len()).unwrap_or(0);
-        if !h.out.exists() || size == 0 {
+        if !h.out.exists() || size < 1024 {
             let tail = h.tail.lock().unwrap().clone();
             let errline = tail
                 .lines()
                 .rev()
                 .find(|l| l.contains("Error") || l.contains("error") || l.contains("Could not") || l.contains("No such"))
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| "ffmpeg produced no output file".into());
+                .unwrap_or_else(|| format!("Recording output incomplete (file size {size} bytes)"));
             return Err(format!("Recording failed: {errline}"));
         }
         ses.parts.push(h.out);
@@ -465,7 +497,7 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
         let cfg = project.settings.ffmpeg_path.as_deref().unwrap_or("(not set)");
         return Err(format!("ffmpeg not found (current configured path: {cfg}). Please specify in settings, e.g. D:\\ffmpeg\\bin\\ffmpeg.exe"));
     }
-    // Capture scope: custom region takes precedence, then selected monitor
+    // Capture scope: region, or monitor
     let capture_rect = match (&project.settings.region, project.settings.monitor) {
         (Some(r), _) => r.clone(),
         (None, Some(idx)) => {
@@ -476,6 +508,18 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
         }
     };
     let countdown = project.settings.countdown_sec.clamp(0, 10);
+
+    // Close any lingering scope preview or selector overlays
+    if let Some(w) = app.get_webview_window("scope_preview") {
+        let _ = w.close();
+    }
+    *app.state::<AppState>().scope_preview_info.lock().unwrap() = None;
+    let _ = app.emit("scope-preview://closed", ());
+
+    if let Some(w) = app.get_webview_window("selector") {
+        let _ = w.close();
+    }
+
     // Hide main window when recording starts
     hide_main(app);
     if countdown == 0 {
@@ -483,25 +527,38 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let _ = show_countdown_window(app, project.settings.monitor);
-    let flag = Arc::new(AtomicBool::new(false));
+    let ctrl = CountdownControl {
+        cancel: Arc::new(AtomicBool::new(false)),
+        skip: Arc::new(AtomicBool::new(false)),
+    };
     {
-        state.recorder.lock().unwrap().phase = Phase::Countdown(flag.clone());
+        state.recorder.lock().unwrap().phase = Phase::Countdown(ctrl.clone());
     }
     let app2 = app.clone();
     std::thread::spawn(move || {
         for left in (1..=countdown).rev() {
-            if flag.load(Ordering::Relaxed) {
+            if ctrl.cancel.load(Ordering::Relaxed) {
                 close_countdown_window(&app2);
                 return;
             }
+            if ctrl.skip.load(Ordering::Relaxed) {
+                break;
+            }
             let _ = app2.emit("rec://countdown", json!({ "left": left }));
-            std::thread::sleep(Duration::from_secs(1));
+            for _ in 0..20 {
+                if ctrl.cancel.load(Ordering::Relaxed) || ctrl.skip.load(Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
-        if flag.load(Ordering::Relaxed) {
+        if ctrl.cancel.load(Ordering::Relaxed) {
             close_countdown_window(&app2);
             return;
         }
         close_countdown_window(&app2);
+        // Guarantee main window remains hidden even after countdown window closes
+        hide_main(&app2);
         if let Err(e) = start_recording_now(&app2, capture_rect) {
             close_hud_window(&app2);
             {
@@ -517,6 +574,7 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
 }
 
 fn start_recording_now(app: &AppHandle, capture_rect: Region) -> Result<(), String> {
+    hide_main(app);
     let state = app.state::<AppState>();
     let p = state.project.lock().unwrap().clone();
     let settings = p.settings.clone();
@@ -624,8 +682,8 @@ pub fn stop_recording(app: &AppHandle) -> Result<Recording, String> {
     let taken = {
         let mut rec = state.recorder.lock().unwrap();
         match rec.phase.clone() {
-            Phase::Countdown(flag) => {
-                flag.store(true, Ordering::Relaxed);
+            Phase::Countdown(ctrl) => {
+                ctrl.cancel.store(true, Ordering::Relaxed);
                 rec.phase = Phase::Idle;
                 show_main(app);
                 emit_phase(app);
@@ -658,6 +716,18 @@ pub fn stop_recording(app: &AppHandle) -> Result<Recording, String> {
 }
 
 #[tauri::command]
+fn record_skip_countdown(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let rec = state.recorder.lock().unwrap();
+    if let Phase::Countdown(ctrl) = &rec.phase {
+        ctrl.skip.store(true, Ordering::Relaxed);
+        Ok(())
+    } else {
+        Err("No countdown in progress".into())
+    }
+}
+
+#[tauri::command]
 async fn record_cancel(app: AppHandle) -> Result<(), String> {
     match tauri::async_runtime::spawn_blocking(move || cancel_recording(&app, true)).await {
         Ok(_) => Ok(()),
@@ -673,8 +743,8 @@ pub fn cancel_recording(app: &AppHandle, show_after: bool) {
     let had = {
         let mut rec = state.recorder.lock().unwrap();
         match rec.phase.clone() {
-            Phase::Countdown(flag) => {
-                flag.store(true, Ordering::Relaxed);
+            Phase::Countdown(ctrl) => {
+                ctrl.cancel.store(true, Ordering::Relaxed);
                 rec.phase = Phase::Idle;
                 false
             }
@@ -1099,14 +1169,18 @@ fn show_countdown_window(app: &AppHandle, monitor_index: Option<usize>) -> Resul
         .shadow(false)
         .build()
         .map_err(|e| e.to_string())?;
-    win::set_window_capture_exclusion(&w, true);
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
     let _ = w.set_focus();
     Ok(())
 }
 
 fn close_countdown_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("countdown") {
+        let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: -32000, y: -32000 }));
+        let _ = w.hide();
         let _ = w.close();
+        win::flush_dwm();
     }
 }
 
@@ -1160,14 +1234,106 @@ fn show_hud_window(app: &AppHandle, capture_rect: &Region, monitor_index: Option
         .shadow(false)
         .build()
         .map_err(|e| e.to_string())?;
-    win::set_window_capture_exclusion(&w, true);
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
+    let _ = w.set_focus();
     Ok(())
 }
 
 fn close_hud_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("hud") {
+        let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: -32000, y: -32000 }));
+        let _ = w.hide();
+        let _ = w.close();
+        win::flush_dwm();
+    }
+}
+
+#[tauri::command]
+async fn list_app_windows() -> Result<Vec<win::AppWindowInfo>, String> {
+    Ok(win::list_windows())
+}
+
+#[tauri::command]
+async fn get_app_window_bounds(hwnd: isize) -> Result<Option<Region>, String> {
+    Ok(win::get_window_bounds(hwnd).map(|(x, y, w, h)| Region { x, y, w, h }))
+}
+
+#[tauri::command]
+async fn show_scope_preview(app: AppHandle, rect: Region) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("scope_preview") {
         let _ = w.close();
     }
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    let cx = rect.x + rect.w / 2;
+    let cy = rect.y + rect.h / 2;
+    let (monitor_idx, target_monitor) = monitors
+        .iter()
+        .enumerate()
+        .find(|(_, m)| {
+            let px = m.position().x;
+            let py = m.position().y;
+            let pw = m.size().width as i32;
+            let ph = m.size().height as i32;
+            cx >= px && cx < px + pw && cy >= py && cy < py + ph
+        })
+        .or_else(|| monitors.iter().enumerate().next())
+        .ok_or("No monitor found for scope preview")?;
+
+    let scale = target_monitor.scale_factor();
+    let pos = target_monitor.position();
+    let size = target_monitor.size();
+
+    let mon_info = MonitorInfo {
+        index: monitor_idx,
+        name: target_monitor.name().cloned().unwrap_or_else(|| format!("Display {}", monitor_idx + 1)),
+        x: pos.x,
+        y: pos.y,
+        w: size.width as i32,
+        h: size.height as i32,
+        scale,
+        is_primary: pos.x == 0 && pos.y == 0,
+    };
+
+    let preview_info = ScopePreviewInfo {
+        rect: rect.clone(),
+        monitor: mon_info,
+    };
+
+    *app.state::<AppState>().scope_preview_info.lock().unwrap() = Some(preview_info);
+
+    let w = WebviewWindowBuilder::new(&app, "scope_preview", WebviewUrl::App("index.html#/scope-preview".into()))
+        .title("Retake Scope Preview")
+        .position(pos.x as f64 / scale, pos.y as f64 / scale)
+        .inner_size(size.width as f64 / scale, size.height as f64 / scale)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
+    let _ = w.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_scope_preview(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("scope_preview") {
+        let _ = w.close();
+    }
+    *app.state::<AppState>().scope_preview_info.lock().unwrap() = None;
+    let _ = app.emit("scope-preview://closed", ());
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_scope_preview_info(app: AppHandle) -> Result<Option<ScopePreviewInfo>, String> {
+    Ok(app.state::<AppState>().scope_preview_info.lock().unwrap().clone())
 }
 
 #[tauri::command]
@@ -1199,7 +1365,9 @@ async fn start_region_select(app: AppHandle, monitor_index: Option<usize>) -> Re
         .shadow(false)
         .build()
         .map_err(|e| e.to_string())?;
-    win::set_window_capture_exclusion(&w, true);
+    let record_app = app.state::<AppState>().project.lock().unwrap().settings.record_app_windows;
+    win::set_window_capture_exclusion(&w, !record_app);
+    let _ = w.set_focus();
     Ok(())
 }
 
@@ -1320,8 +1488,8 @@ fn shutdown_kill(app: &AppHandle) {
     close_countdown_window(app);
     let state = app.state::<AppState>();
     let mut rec = state.recorder.lock().unwrap();
-    if let Phase::Countdown(f) = rec.phase.clone() {
-        f.store(true, Ordering::Relaxed);
+    if let Phase::Countdown(ctrl) = rec.phase.clone() {
+        ctrl.cancel.store(true, Ordering::Relaxed);
         rec.phase = Phase::Idle;
     }
     if let Some(mut ses) = rec.session.take() {
@@ -1361,6 +1529,8 @@ fn main() {
             recorder: Mutex::new(Recorder::new()),
             region_monitor: Mutex::new(None),
             active_target: Mutex::new(None),
+            scope_preview_info: Mutex::new(None),
+            main_window_pos: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
@@ -1369,6 +1539,7 @@ fn main() {
             record_start,
             record_stop,
             record_cancel,
+            record_skip_countdown,
             record_pause_resume,
             record_checkpoint,
             record_rollback,
@@ -1382,12 +1553,17 @@ fn main() {
             set_active_manifest_target,
             open_manifest_file,
             validate_manifest_dir,
+            list_app_windows,
+            get_app_window_bounds,
+            show_scope_preview,
+            close_scope_preview,
+            get_scope_preview_info,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             let p = project::load(&handle);
             *handle.state::<AppState>().project.lock().unwrap() = p.clone();
-            apply_main_exclusion(&handle, p.settings.exclude_self);
+            apply_app_exclusion(&handle, p.settings.record_app_windows);
             let gs = handle.global_shortcut();
             for sc in ["alt+1", "alt+2", "alt+3", "alt+f", "alt+g"] {
                 gs.register(sc).map_err(|e| format!("Failed to register shortcut {sc}: {e}"))?;

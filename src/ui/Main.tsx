@@ -8,9 +8,10 @@ import type { Bootstrap, ManifestItem, MonitorInfo, PhaseView, Project, Recordin
 import { clamp, fmtDur } from '../fmt'
 import { useI18n, type I18nKey } from '../i18n'
 import logoSvg from '../assets/logo.svg'
+import { CustomSelect, SelectOption } from './CustomSelect'
 import {
-  CheckIcon, ChevronDownIcon, ChevronRightIcon, CropIcon,
-  FolderIcon, GearIcon, ListIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MouseIcon,
+  CheckIcon, ChevronDownIcon, ChevronRightIcon, CropIcon, EyeIcon,
+  FolderIcon, GearIcon, ListIcon, LockIcon, MaxIcon, MicIcon, MinusIcon, MonitorIcon, MouseIcon,
   PauseIcon, PlayIcon, PlusIcon, RefreshIcon, SpeakerIcon, StopIcon, TrashIcon, XIcon,
 } from './icons'
 
@@ -39,13 +40,34 @@ export default function Main() {
   const [manifest, setManifest] = useState<RecordingManifest | null>(null)
   const [micLevel, setMicLevel] = useState(0)
   const [sysLevel, setSysLevel] = useState(0)
+  const [scopeMode, setScopeMode] = useState<'display' | 'region'>('display')
+  const [isPreviewingScope, setIsPreviewingScope] = useState(false)
+  const lastMicRef = useRef<string | null>(null)
   const toastSeq = useRef(0)
   const skipNextSave = useRef(false)
+  const lastToastText = useRef<string>('')
+  const lastToastTime = useRef<number>(0)
+  const tRef = useRef(t)
+  useEffect(() => { tRef.current = t }, [t])
+  const projectRef = useRef(project)
+  useEffect(() => {
+    projectRef.current = project
+    if (project?.settings?.mic) {
+      lastMicRef.current = project.settings.mic
+    }
+  }, [project])
 
   const toast = (text: string, kind: Toast['kind'] = 'info') => {
+    const now = Date.now()
+    if (text === lastToastText.current && now - lastToastTime.current < 1600) {
+      return
+    }
+    lastToastText.current = text
+    lastToastTime.current = now
+
     const id = ++toastSeq.current
-    setToasts(t => [...t, { id, text, kind }])
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4600)
+    setToasts(tList => [...tList.slice(-2), { id, text, kind }])
+    setTimeout(() => setToasts(tList => tList.filter(x => x.id !== id)), 4000)
   }
 
   const reloadManifest = async (dir?: string | null) => {
@@ -86,6 +108,11 @@ export default function Main() {
         setPhase(b.phase)
         setMics(b.mics)
         setMonitors(b.monitors)
+        if (p.settings.region) {
+          setScopeMode('region')
+        } else {
+          setScopeMode('display')
+        }
         if (p.manifestMode && p.manifestDir) {
           reloadManifest(p.manifestDir)
         } else {
@@ -97,23 +124,34 @@ export default function Main() {
 
   // ---- Event Subscriptions ----
   useEffect(() => {
-    const un: Array<() => void> = []
-    const add = <T,>(ev: string, fn: (p: T) => void) => {
-      listen<T>(ev, e => fn(e.payload)).then(u => un.push(u))
+    let active = true
+    const cleanups: Array<() => void> = []
+
+    const register = async <T,>(ev: string, fn: (p: T) => void) => {
+      const u = await listen<T>(ev, e => {
+        if (active) fn(e.payload)
+      })
+      if (active) {
+        cleanups.push(u)
+      } else {
+        u()
+      }
     }
-    add<PhaseView>('rec://phase', p => {
+
+    register<PhaseView>('rec://phase', p => {
       setPhase(p)
       setCountdown(0)
       if (p.phase !== 'recording') setElapsed(0)
     })
-    add<{ left: number }>('rec://countdown', p => setCountdown(p.left))
-    add<{ message: string }>('rec://error', p => toast(p.message, 'err'))
-    add<{ mic: number; sys: number }>('audio://levels', p => {
+    register<{ left: number }>('rec://countdown', p => setCountdown(p.left))
+    register<{ message: string }>('rec://error', p => toast(p.message, 'err'))
+    register<{ mic: number; sys: number }>('audio://levels', p => {
       setMicLevel(p.mic)
       setSysLevel(p.sys)
     })
-    add<Recording>('rec://saved', r => {
-      toast(t('toast.saved', { file: r.fileName }), 'ok')
+    register<Recording>('rec://saved', r => {
+      const curT = tRef.current
+      toast(curT('toast.saved', { file: r.fileName }), 'ok')
       setManifest(cur => {
         if (!cur || !cur.activeItemId) return cur
         const nextItems = cur.items.map(item => {
@@ -128,23 +166,32 @@ export default function Main() {
           return item
         })
         const updated = { ...cur, items: nextItems }
-        const saveDir = project?.manifestMode && project?.manifestDir ? project.manifestDir : null
+        const p = projectRef.current
+        const saveDir = p?.manifestMode && p?.manifestDir ? p.manifestDir : null
         if (saveDir) {
           api.saveManifest(updated, saveDir).catch(() => {})
         }
         return updated
       })
     })
-    add<unknown>('rec://cancelled', () => toast(t('toast.cancelled'), 'info'))
-    add<Project>('project://changed', p => {
+    register<unknown>('rec://cancelled', () => {
+      const curT = tRef.current
+      toast(curT('toast.cancelled'), 'info')
+    })
+    register<Project>('project://changed', p => {
       skipNextSave.current = true
       setProject(p)
     })
-    add<Region>('region://updated', r =>
+    register<Region>('region://updated', r =>
       setProject(pr => (pr ? { ...pr, settings: { ...pr.settings, region: r } } : pr)),
     )
-    return () => un.forEach(f => f())
-  }, [t, boot?.outputDir])
+    register<void>('scope-preview://closed', () => setIsPreviewingScope(false))
+
+    return () => {
+      active = false
+      cleanups.forEach(f => f())
+    }
+  }, [])
 
   // ---- Auto-Save Project Settings ----
   const firstSave = useRef(true)
@@ -175,6 +222,10 @@ export default function Main() {
 
   // ---- Auto-Fit Window Height to Compact Content ----
   useEffect(() => {
+    // If not in idle phase, the main window is hidden — do not trigger Win32 setSize
+    if (phase.phase !== 'idle') {
+      return
+    }
     const win = getCurrentWindow()
     let last = -1
     const update = () => {
@@ -195,10 +246,8 @@ export default function Main() {
     }
     update()
     window.addEventListener('resize', update)
-    const iv = setInterval(update, 200)
     return () => {
       window.removeEventListener('resize', update)
-      clearInterval(iv)
     }
   }, [boot, showMore, showManifest, phase.phase, manifest])
 
@@ -219,6 +268,35 @@ export default function Main() {
     const bpp = 0.09 * (23 / crf)
     return Math.max(1, Math.round((effRect.w * effRect.h * s.fps * bpp) / 8 * 60 / (1024 * 1024)))
   })()
+
+  // ---- Scope Preview ----
+  const handleToggleScopePreview = async () => {
+    if (isPreviewingScope) {
+      await api.closeScopePreview().catch(() => {})
+      setIsPreviewingScope(false)
+    } else {
+      if (!effRect) {
+        toast(t('hero.errNoScope'), 'err')
+        return
+      }
+      await api.showScopePreview(effRect).catch(err => toast(String(err), 'err'))
+      setIsPreviewingScope(true)
+    }
+  }
+
+  // Format auto target filename for manifest items: 01_<title>.mp4
+  const formatAutoTargetFileName = (indexOneBased: number, rawName: string): string => {
+    const pad = indexOneBased < 10 ? `0${indexOneBased}` : `${indexOneBased}`
+    let clean = (rawName || '').trim()
+    clean = clean.replace(/\.[a-zA-Z0-9]+$/, '')
+    clean = clean.replace(new RegExp(`^0*${indexOneBased}_`), '')
+    clean = clean.trim()
+    if (!clean) {
+      clean = `Clip ${pad}`
+    }
+    clean = clean.replace(/[<>:"/\\|?*]/g, '_')
+    return `${pad}_${clean}.mp4`
+  }
 
   // ---- Manifest Mode & Target Clip ----
   const manifestDir = project?.manifestDir || null
@@ -244,14 +322,14 @@ export default function Main() {
           items: [
             {
               id: 'clip_01',
-              title: '01 Intro',
-              targetFileName: '01_intro.mp4',
+              title: 'Clip 01',
+              targetFileName: '01_Clip 01.mp4',
               status: 'pending',
             },
             {
               id: 'clip_02',
-              title: '02 Content',
-              targetFileName: '02_content.mp4',
+              title: 'Clip 02',
+              targetFileName: '02_Clip 02.mp4',
               status: 'pending',
             },
           ],
@@ -316,10 +394,11 @@ export default function Main() {
     if (!manifest || !manifestDir) return
     const idx = manifest.items.length + 1
     const pad = idx < 10 ? `0${idx}` : `${idx}`
+    const title = `Clip ${pad}`
     const newItem: ManifestItem = {
       id: `clip_${Date.now()}`,
-      title: `Clip ${pad}`,
-      targetFileName: `clip_${pad}.mp4`,
+      title,
+      targetFileName: formatAutoTargetFileName(idx, title),
       status: 'pending',
     }
     const updated = { ...manifest, items: [...manifest.items, newItem] }
@@ -369,6 +448,10 @@ export default function Main() {
     setProject(p => (p ? { ...p, settings: { ...p.settings, ...fields } } : p))
 
   const start = () => {
+    if (isPreviewingScope) {
+      api.closeScopePreview().catch(() => {})
+      setIsPreviewingScope(false)
+    }
     const targetFile = activeClip ? activeClip.targetFileName : null
     api.recordStart(targetFile).catch(e => toast(String(e), 'err'))
   }
@@ -420,6 +503,20 @@ export default function Main() {
   const clearRegion = () => patchSettings({ region: null })
   const pickMonitor = (idx: number) => patchSettings({ monitor: idx, region: null })
 
+  const monitorOptions: SelectOption<number>[] = monitors.map(m => {
+    const orient = m.w >= m.h ? t('scope.landscape') : t('scope.portrait')
+    return {
+      value: m.index,
+      label: `${m.name} (${m.w}×${m.h}) [${orient}]`,
+      badge: m.isPrimary ? t('scope.primary') : undefined,
+    }
+  })
+
+  const micOptions: SelectOption<string>[] = mics.map(m => ({
+    value: m,
+    label: m,
+  }))
+
   if (!project || !boot || !s) {
     return <div className="boot-loading">{t('boot.loading')}</div>
   }
@@ -427,36 +524,13 @@ export default function Main() {
   return (
     <div className={`app ${recording ? 'recording-glow' : ''}`}>
       {/* Sleek Custom Titlebar */}
-      <header className="titlebar">
+      <header className="titlebar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
           <img src={logoSvg} alt="Retake" className="brand-logo-img" data-tauri-drag-region />
           <span className="brand-name" data-tauri-drag-region>Retake</span>
-          <span className="brand-badge" data-tauri-drag-region>{t('brand.badge')}</span>
         </div>
 
-        {/* Dynamic Recording Status Badge */}
-        <div className="titlebar-status" data-tauri-drag-region>
-          {recording ? (
-            <div className="status-pill recording">
-              <span className="rec-beacon" />
-              <span>{t('status.recording', { time: fmtDur(elapsed) })}</span>
-            </div>
-          ) : paused ? (
-            <div className="status-pill paused">
-              <span>{t('status.paused', { time: fmtDur(elapsed) })}</span>
-            </div>
-          ) : counting ? (
-            <div className="status-pill counting">
-              <span>{t('status.counting', { sec: countdown })}</span>
-            </div>
-          ) : (
-            <div className="status-pill ready">
-              <span className="ready-dot" />
-              <span>{t('status.ready')}</span>
-              {effRect && <span className="res-tag">{effRect.w}×{effRect.h}</span>}
-            </div>
-          )}
-        </div>
+        <div className="titlebar-spacer" data-tauri-drag-region style={{ flex: 1, height: '100%' }} />
 
         {/* Titlebar Actions */}
         <div className="titlebar-actions">
@@ -502,56 +576,99 @@ export default function Main() {
           <section className="deck-col scope-col">
             <div className="col-head">
               <span className="col-title">{t('scope.title')}</span>
-              {s.region && <span className="col-tag">{t('scope.customRegion')}</span>}
+              <div className="scope-mode-tabs">
+                <button
+                  className={`scope-mode-tab ${scopeMode === 'display' ? 'active' : ''}`}
+                  onClick={() => {
+                    setScopeMode('display')
+                    patchSettings({
+                      captureMode: 'display',
+                      region: null,
+                      monitor: s?.monitor ?? monitors[0]?.index ?? 0,
+                    })
+                  }}
+                  title={t('scope.modeDisplay')}
+                >
+                  <MonitorIcon size={13} />
+                </button>
+                <button
+                  className={`scope-mode-tab ${scopeMode === 'region' ? 'active' : ''}`}
+                  onClick={() => {
+                    setScopeMode('region')
+                    patchSettings({
+                      captureMode: 'region',
+                    })
+                    startRegion()
+                  }}
+                  title={t('scope.modeRegion')}
+                >
+                  <CropIcon size={13} />
+                </button>
+              </div>
             </div>
 
             <div className="col-body">
-              {/* Display / Region Selection Dropdown */}
-              <select
-                className="flat-select"
-                value={s.region ? '__region__' : s.monitor ?? ''}
-                onChange={e => {
-                  const v = e.target.value
-                  if (v === '__region__') startRegion()
-                  else if (v === '') patchSettings({ monitor: null })
-                  else pickMonitor(parseInt(v))
-                }}
-              >
-                <option value="" disabled>{t('scope.selectMonitor')}</option>
-                {monitors.map(m => (
-                  <option key={m.index} value={m.index}>
-                    {m.name} ({m.w}×{m.h}){m.isPrimary ? t('scope.primary') : ''}
-                  </option>
-                ))}
-                {s.region && <option value="__region__">{t('scope.regionLabel', { w: s.region.w, h: s.region.h })}</option>}
-              </select>
+              {scopeMode === 'display' && (
+                <CustomSelect
+                  value={s.monitor ?? 0}
+                  options={monitorOptions}
+                  onChange={v => pickMonitor(Number(v))}
+                  disabled={recording || counting}
+                  placeholder={t('scope.selectMonitor')}
+                />
+              )}
 
-              {/* Resolution & Crop Actions */}
+              {scopeMode === 'region' && (
+                <div className="region-scope-box">
+                  <span className="region-scope-desc">
+                    {s.region
+                      ? t('scope.regionLabel', { w: s.region.w, h: s.region.h })
+                      : t('scope.cropHint')}
+                  </span>
+                  <div className="scope-btn-group">
+                    <button
+                      className="ghost-icon-btn"
+                      onClick={startRegion}
+                      disabled={counting || recording}
+                      title={t('scope.cropHint')}
+                    >
+                      <CropIcon size={13} />
+                    </button>
+                    {s.region && (
+                      <button
+                        className="ghost-icon-btn danger"
+                        onClick={clearRegion}
+                        disabled={recording}
+                        title={t('scope.clear')}
+                      >
+                        <TrashIcon size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Resolution & Orientation & Preview Actions */}
               <div className="scope-meta-row">
                 <span className="res-plain-text">
                   <LockIcon size={11} className="res-plain-icon" />
                   <span>{effRect ? `${effRect.w} × ${effRect.h}` : '—'}</span>
+                  {effRect && (
+                    <span className={`scope-orient-tag ${effRect.w >= effRect.h ? 'landscape' : 'portrait'}`}>
+                      {effRect.w >= effRect.h ? t('scope.landscape') : t('scope.portrait')}
+                    </span>
+                  )}
                 </span>
 
                 <div className="scope-btn-group">
                   <button
-                    className="ghost-btn"
-                    onClick={startRegion}
-                    disabled={counting || recording}
-                    title={t('scope.cropHint')}
+                    className={`ghost-icon-btn scope-preview-btn ${isPreviewingScope ? 'active' : ''}`}
+                    onClick={handleToggleScopePreview}
+                    disabled={counting || recording || !effRect}
+                    title={isPreviewingScope ? t('scope.previewingScope') : t('scope.previewScope')}
                   >
-                    <CropIcon size={12} />
-                    <span>{t('scope.crop')}</span>
+                    <EyeIcon size={13} />
                   </button>
-                  {s.region && (
-                    <button
-                      className="ghost-btn danger"
-                      onClick={clearRegion}
-                      disabled={recording}
-                    >
-                      {t('scope.clear')}
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -562,52 +679,66 @@ export default function Main() {
             <div className="col-head">
               <span className="col-title">{t('audio.title')}</span>
               <button
-                className="ghost-link"
+                className="ghost-icon-btn"
                 onClick={refreshMics}
                 disabled={recording}
                 title={t('audio.refreshHint')}
               >
-                <RefreshIcon size={11} />
-                <span>{t('audio.refresh')}</span>
+                <RefreshIcon size={13} />
               </button>
             </div>
 
             <div className="col-body audio-rows">
               {/* Microphone Row */}
               <div className={`audio-row ${s.mic ? 'active' : ''}`}>
-                <MicIcon size={15} className={`audio-row-ico ${s.mic ? 'on' : ''}`} />
-                <select
-                  className="flat-select audio-select"
-                  value={s.mic ?? ''}
-                  disabled={!s.mic}
-                  onChange={e => patchSettings({ mic: e.target.value || null })}
-                >
-                  <option value="">{mics.length ? t('audio.selectMic') : t('audio.noMic')}</option>
-                  {mics.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-                <AudioVisualizer level={micLevel} active={!!s.mic} t={t} />
-                <Switch
-                  checked={!!s.mic}
+                <button
+                  type="button"
+                  className={`audio-btn-ico ${s.mic ? 'on' : 'off'}`}
                   disabled={recording || counting}
-                  onChange={v => patchSettings({ mic: v ? (mics[0] ?? '') : null })}
+                  onClick={() => {
+                    if (s.mic) {
+                      lastMicRef.current = s.mic
+                      patchSettings({ mic: null })
+                    } else {
+                      const nextMic = (lastMicRef.current && mics.includes(lastMicRef.current))
+                        ? lastMicRef.current
+                        : (mics[0] ?? '')
+                      patchSettings({ mic: nextMic || null })
+                    }
+                  }}
                   title={s.mic ? t('audio.toggleMicOff') : t('audio.toggleMicOn')}
+                >
+                  <MicIcon size={15} />
+                </button>
+                <CustomSelect
+                  className={`audio-custom-select ${!s.mic ? 'dimmed' : ''}`}
+                  value={s.mic ?? ''}
+                  options={micOptions}
+                  onChange={v => {
+                    const val = String(v) || null
+                    lastMicRef.current = val
+                    patchSettings({ mic: val })
+                  }}
+                  disabled={!s.mic || recording || counting}
+                  placeholder={mics.length ? t('audio.selectMic') : t('audio.noMic')}
                 />
               </div>
 
               {/* System Audio Row */}
               <div className={`audio-row ${s.systemAudio ? 'active' : ''}`}>
-                <SpeakerIcon size={15} className={`audio-row-ico ${s.systemAudio ? 'on' : ''}`} />
+                <button
+                  type="button"
+                  className={`audio-btn-ico ${s.systemAudio ? 'on' : 'off'}`}
+                  disabled={recording || counting}
+                  onClick={() => patchSettings({ systemAudio: !s.systemAudio })}
+                  title={s.systemAudio ? t('audio.toggleSysOff') : t('audio.toggleSysOn')}
+                >
+                  <SpeakerIcon size={15} />
+                </button>
                 <div className="audio-row-name">
                   <span>{t('audio.system')}</span>
                   <span className="audio-wasapi-tip">WASAPI</span>
                 </div>
-                <AudioVisualizer level={sysLevel} active={!!s.systemAudio} t={t} />
-                <Switch
-                  checked={!!s.systemAudio}
-                  disabled={recording || counting}
-                  onChange={v => patchSettings({ systemAudio: v })}
-                  title={s.systemAudio ? t('audio.toggleSysOff') : t('audio.toggleSysOn')}
-                />
               </div>
             </div>
           </section>
@@ -794,15 +925,14 @@ export default function Main() {
                   <span className="manifest-subtitle">{project?.manifestDir}</span>
                 </div>
                 <div className="manifest-toolbar-btns">
-                  <button className="ghost-btn" onClick={handleAddClip}>
-                    <PlusIcon size={12} />
-                    <span>{t('manifest.addItem')}</span>
+                  <button className="ghost-icon-btn" onClick={handleAddClip} title={t('manifest.addItem')}>
+                    <PlusIcon size={13} />
                   </button>
-                  <button className="ghost-btn" onClick={handleOpenManifestJson} title="retake_manifest.json">
-                    <span>{t('manifest.openJson')}</span>
+                  <button className="ghost-icon-btn" onClick={handleOpenManifestJson} title={`${t('manifest.openJson')} (retake_manifest.json)`}>
+                    <FolderIcon size={13} />
                   </button>
                   <button className="ghost-icon-btn" onClick={() => reloadManifest()} title={t('manifest.reload')}>
-                    <RefreshIcon size={12} />
+                    <RefreshIcon size={13} />
                   </button>
                 </div>
               </div>
@@ -819,8 +949,8 @@ export default function Main() {
                       <span className="active-banner-warn">{t('manifest.willOverwrite')}</span>
                     )}
                   </div>
-                  <button className="ghost-btn danger small" onClick={handleClearTarget}>
-                    {t('manifest.clearTarget')}
+                  <button className="ghost-icon-btn danger" onClick={handleClearTarget} title={t('manifest.clearTarget')}>
+                    <XIcon size={13} />
                   </button>
                 </div>
               )}
@@ -830,8 +960,7 @@ export default function Main() {
                 <div className="manifest-table">
                   <div className="manifest-thead">
                     <div className="th-col th-radio">#</div>
-                    <div className="th-col th-title">{t('manifest.clipTitle')}</div>
-                    <div className="th-col th-file">{t('manifest.clipFile')}</div>
+                    <div className="th-col th-name">{t('manifest.clipName')}</div>
                     <div className="th-col th-status">{t('manifest.statusRecorded')} / {t('manifest.statusPending')}</div>
                     <div className="th-col th-actions"></div>
                   </div>
@@ -853,30 +982,21 @@ export default function Main() {
                             <span className="row-num">{idx + 1}</span>
                           </div>
 
-                          {/* Inline Title Editor */}
-                          <div className="td-col td-title">
+                          {/* Merged Clip Name & Auto Filename */}
+                          <div className="td-col td-name">
                             <input
-                              className="flat-input inline-text"
+                              className="flat-input inline-name"
                               value={item.title}
-                              placeholder={t('manifest.clipTitle')}
-                              onChange={e => handleUpdateClip(item.id, { title: e.target.value })}
-                            />
-                          </div>
-
-                          {/* Inline File Name Editor */}
-                          <div className="td-col td-file">
-                            <input
-                              className="flat-input inline-file"
-                              value={item.targetFileName}
-                              placeholder="clip.mp4"
-                              onChange={e => handleUpdateClip(item.id, { targetFileName: e.target.value })}
-                              onBlur={e => {
-                                const sanitized = sanitizeFileName(e.target.value)
-                                if (sanitized !== e.target.value) {
-                                  handleUpdateClip(item.id, { targetFileName: sanitized })
-                                }
+                              placeholder={t('manifest.clipNamePlaceholder')}
+                              onChange={e => {
+                                const newTitle = e.target.value
+                                const newTarget = formatAutoTargetFileName(idx + 1, newTitle)
+                                handleUpdateClip(item.id, { title: newTitle, targetFileName: newTarget })
                               }}
                             />
+                            <span className="inline-file-tag" title={item.targetFileName}>
+                              {item.targetFileName}
+                            </span>
                           </div>
 
                           {/* Status & Duration */}
@@ -1012,12 +1132,12 @@ export default function Main() {
                     />
                   </div>
 
-                  <div className="inline-switch-item">
-                    <span className="switch-text">{t('settings.excludeSelf')}</span>
+                  <div className="inline-switch-item" title={t('settings.recordAppWindowsHint')}>
+                    <span className="switch-text">{t('settings.recordAppWindows')}</span>
                     <Switch
-                      checked={s.excludeSelf}
+                      checked={!!s.recordAppWindows}
                       disabled={recording || counting}
-                      onChange={v => patchSettings({ excludeSelf: v })}
+                      onChange={v => patchSettings({ recordAppWindows: v })}
                     />
                   </div>
                 </div>
@@ -1051,9 +1171,8 @@ export default function Main() {
                       placeholder={t('settings.ffmpegPlaceholder')}
                       onChange={e => patchSettings({ ffmpegPath: e.target.value || null })}
                     />
-                    <button className="ghost-btn" onClick={recheck} title={t('settings.recheckHint')}>
-                      <RefreshIcon size={12} />
-                      <span>{t('settings.recheck')}</span>
+                    <button className="ghost-icon-btn" onClick={recheck} title={t('settings.recheckHint')}>
+                      <RefreshIcon size={13} />
                     </button>
                   </div>
                 </div>
@@ -1127,9 +1246,6 @@ function AudioVisualizer({
         <i className={`viz-bar ${getClass(b2)}`} style={{ height: `${b2}%` }} />
         <i className={`viz-bar ${getClass(b3)}`} style={{ height: `${b3}%` }} />
         <i className={`viz-bar ${getClass(b4)}`} style={{ height: `${b4}%` }} />
-      </span>
-      <span className={`viz-tag ${isHearing ? 'hearing' : ''}`}>
-        {isHearing ? t('audio.hearing') : t('audio.silent')}
       </span>
     </div>
   )

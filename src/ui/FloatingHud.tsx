@@ -33,8 +33,11 @@ export default function FloatingHud() {
 
   // Initialize and listen for events
   useEffect(() => {
+    document.documentElement.classList.add('transparent')
     document.body.classList.add('fill-window')
     document.body.classList.add('transparent')
+    const rootEl = document.getElementById('root')
+    if (rootEl) rootEl.classList.add('transparent')
 
     // Retrieve initial HUD state
     api.getHudState()
@@ -102,8 +105,10 @@ export default function FloatingHud() {
       unlistens.forEach(fn => fn())
       window.removeEventListener('keydown', onKey)
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+      document.documentElement.classList.remove('transparent')
       document.body.classList.remove('fill-window')
       document.body.classList.remove('transparent')
+      if (rootEl) rootEl.classList.remove('transparent')
     }
   }, [t])
 

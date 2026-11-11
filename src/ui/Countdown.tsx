@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { api } from '../api'
 import type { Bootstrap } from '../api'
 import { useI18n } from '../i18n'
+import { PlayIcon, XIcon } from './icons'
 
 export default function Countdown() {
   const { t } = useI18n()
@@ -11,8 +12,11 @@ export default function Countdown() {
   const [boot, setBoot] = useState<Bootstrap | null>(null)
 
   useEffect(() => {
+    document.documentElement.classList.add('transparent')
     document.body.classList.add('fill-window')
     document.body.classList.add('transparent')
+    const rootEl = document.getElementById('root')
+    if (rootEl) rootEl.classList.add('transparent')
 
     api.bootstrap()
       .then(b => {
@@ -28,8 +32,10 @@ export default function Countdown() {
     }).then(u => un.push(u))
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || (e.altKey && e.key === '1') || (e.altKey && e.key === '3')) {
+      if (e.key === 'Escape' || (e.altKey && e.key === '3')) {
         api.recordCancel().catch(() => {})
+      } else if (e.key === 'Enter' || e.key === ' ' || (e.altKey && e.key === '1')) {
+        api.recordSkipCountdown().catch(() => {})
       }
     }
     window.addEventListener('keydown', onKey)
@@ -37,13 +43,19 @@ export default function Countdown() {
     return () => {
       un.forEach(f => f())
       window.removeEventListener('keydown', onKey)
+      document.documentElement.classList.remove('transparent')
       document.body.classList.remove('fill-window')
       document.body.classList.remove('transparent')
+      if (rootEl) rootEl.classList.remove('transparent')
     }
   }, [])
 
   const cancel = () => {
     api.recordCancel().catch(() => {})
+  }
+
+  const startNow = () => {
+    api.recordSkipCountdown().catch(() => {})
   }
 
   const s = boot?.project.settings
@@ -54,20 +66,9 @@ export default function Countdown() {
   return (
     <div className="cd-overlay">
       <div className="cd-center">
-        {/* Countdown ring & core number */}
-        <div className="cd-ring-wrap" key={animKey}>
-          <svg className="cd-svg" viewBox="0 0 200 200">
-            <defs>
-              <linearGradient id="cdGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ff4d4f" />
-                <stop offset="50%" stopColor="#ff7875" />
-                <stop offset="100%" stopColor="#ffa39e" />
-              </linearGradient>
-            </defs>
-            <circle className="cd-circle-bg" cx="100" cy="100" r="88" />
-            <circle className="cd-circle-fg" cx="100" cy="100" r="88" />
-          </svg>
-          <div className="cd-num">{seconds}</div>
+        {/* Core countdown number - magnified, borderless, no background, no circular frame */}
+        <div className="cd-num-display" key={animKey}>
+          <span className="cd-num">{seconds}</span>
         </div>
 
         {/* Title and dots */}
@@ -91,12 +92,19 @@ export default function Countdown() {
           {s?.captureCursor === false && <span className="cd-badge">{t('countdown.noCursor')}</span>}
         </div>
 
-        {/* Cancel button */}
-        <button className="cd-cancel-btn" onClick={cancel} title={t('countdown.cancelHint')}>
-          <span className="cd-cancel-x">✕</span>
-          <span>{t('countdown.cancel')}</span>
-          <span className="cd-kbd">ESC</span>
-        </button>
+        {/* Actions row: Start Now & Cancel */}
+        <div className="cd-actions">
+          <button className="cd-start-btn" onClick={startNow} title={t('countdown.startNowHint')}>
+            <PlayIcon size={14} />
+            <span>{t('countdown.startNow')}</span>
+            <span className="cd-kbd">Enter</span>
+          </button>
+          <button className="cd-cancel-btn" onClick={cancel} title={t('countdown.cancelHint')}>
+            <XIcon size={13} />
+            <span>{t('countdown.cancel')}</span>
+            <span className="cd-kbd">ESC</span>
+          </button>
+        </div>
       </div>
     </div>
   )
