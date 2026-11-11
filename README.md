@@ -103,7 +103,7 @@ Head over to the [**Latest Release**](https://github.com/maplexrain/Retake/relea
 
 | Package | Format | Description |
 | :--- | :--- | :--- |
-| **`Retake_0.1.0_x64-setup.exe`** | NSIS Installer | Standard Windows installer with desktop and start menu shortcuts |
+| **`Retake_0.1.1_x64-setup.exe`** | NSIS Installer | Standard Windows installer with desktop and start menu shortcuts |
 | **`retake.exe`** | Standalone Portable | Portable executable — run anywhere with zero installation |
 
 ---
