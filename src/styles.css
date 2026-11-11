@@ -67,6 +67,7 @@ input, select { font: inherit; }
 .titlebar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   height: 40px;
   padding: 0 4px 0 12px;
@@ -189,6 +190,7 @@ input, select { font: inherit; }
   display: flex;
   align-items: center;
   height: 100%;
+  margin-left: auto;
 }
 .win-sep {
   width: 1px;

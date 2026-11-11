@@ -524,11 +524,13 @@ export default function Main() {
   return (
     <div className={`app ${recording ? 'recording-glow' : ''}`}>
       {/* Sleek Custom Titlebar */}
-      <header className="titlebar">
+      <header className="titlebar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
           <img src={logoSvg} alt="Retake" className="brand-logo-img" data-tauri-drag-region />
           <span className="brand-name" data-tauri-drag-region>Retake</span>
         </div>
+
+        <div className="titlebar-spacer" data-tauri-drag-region style={{ flex: 1, height: '100%' }} />
 
         {/* Titlebar Actions */}
         <div className="titlebar-actions">
