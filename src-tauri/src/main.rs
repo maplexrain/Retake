@@ -8,7 +8,7 @@ mod win;
 
 use ffmpeg_util::FfmpegInfo;
 use project::{Project, Recording, Region};
-use recorder::{Phase, Recorder, Session};
+use recorder::{CountdownControl, Phase, Recorder, Session};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
@@ -513,21 +513,32 @@ pub fn record_start_impl(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let _ = show_countdown_window(app, project.settings.monitor);
-    let flag = Arc::new(AtomicBool::new(false));
+    let ctrl = CountdownControl {
+        cancel: Arc::new(AtomicBool::new(false)),
+        skip: Arc::new(AtomicBool::new(false)),
+    };
     {
-        state.recorder.lock().unwrap().phase = Phase::Countdown(flag.clone());
+        state.recorder.lock().unwrap().phase = Phase::Countdown(ctrl.clone());
     }
     let app2 = app.clone();
     std::thread::spawn(move || {
         for left in (1..=countdown).rev() {
-            if flag.load(Ordering::Relaxed) {
+            if ctrl.cancel.load(Ordering::Relaxed) {
                 close_countdown_window(&app2);
                 return;
             }
+            if ctrl.skip.load(Ordering::Relaxed) {
+                break;
+            }
             let _ = app2.emit("rec://countdown", json!({ "left": left }));
-            std::thread::sleep(Duration::from_secs(1));
+            for _ in 0..20 {
+                if ctrl.cancel.load(Ordering::Relaxed) || ctrl.skip.load(Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
-        if flag.load(Ordering::Relaxed) {
+        if ctrl.cancel.load(Ordering::Relaxed) {
             close_countdown_window(&app2);
             return;
         }
@@ -657,8 +668,8 @@ pub fn stop_recording(app: &AppHandle) -> Result<Recording, String> {
     let taken = {
         let mut rec = state.recorder.lock().unwrap();
         match rec.phase.clone() {
-            Phase::Countdown(flag) => {
-                flag.store(true, Ordering::Relaxed);
+            Phase::Countdown(ctrl) => {
+                ctrl.cancel.store(true, Ordering::Relaxed);
                 rec.phase = Phase::Idle;
                 show_main(app);
                 emit_phase(app);
@@ -691,6 +702,18 @@ pub fn stop_recording(app: &AppHandle) -> Result<Recording, String> {
 }
 
 #[tauri::command]
+fn record_skip_countdown(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let rec = state.recorder.lock().unwrap();
+    if let Phase::Countdown(ctrl) = &rec.phase {
+        ctrl.skip.store(true, Ordering::Relaxed);
+        Ok(())
+    } else {
+        Err("No countdown in progress".into())
+    }
+}
+
+#[tauri::command]
 async fn record_cancel(app: AppHandle) -> Result<(), String> {
     match tauri::async_runtime::spawn_blocking(move || cancel_recording(&app, true)).await {
         Ok(_) => Ok(()),
@@ -706,8 +729,8 @@ pub fn cancel_recording(app: &AppHandle, show_after: bool) {
     let had = {
         let mut rec = state.recorder.lock().unwrap();
         match rec.phase.clone() {
-            Phase::Countdown(flag) => {
-                flag.store(true, Ordering::Relaxed);
+            Phase::Countdown(ctrl) => {
+                ctrl.cancel.store(true, Ordering::Relaxed);
                 rec.phase = Phase::Idle;
                 false
             }
@@ -1445,8 +1468,8 @@ fn shutdown_kill(app: &AppHandle) {
     close_countdown_window(app);
     let state = app.state::<AppState>();
     let mut rec = state.recorder.lock().unwrap();
-    if let Phase::Countdown(f) = rec.phase.clone() {
-        f.store(true, Ordering::Relaxed);
+    if let Phase::Countdown(ctrl) = rec.phase.clone() {
+        ctrl.cancel.store(true, Ordering::Relaxed);
         rec.phase = Phase::Idle;
     }
     if let Some(mut ses) = rec.session.take() {
@@ -1495,6 +1518,7 @@ fn main() {
             record_start,
             record_stop,
             record_cancel,
+            record_skip_countdown,
             record_pause_resume,
             record_checkpoint,
             record_rollback,

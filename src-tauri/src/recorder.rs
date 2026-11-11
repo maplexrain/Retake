@@ -6,9 +6,15 @@ use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Clone)]
+pub struct CountdownControl {
+    pub cancel: Arc<AtomicBool>,
+    pub skip: Arc<AtomicBool>,
+}
+
+#[derive(Clone)]
 pub enum Phase {
     Idle,
-    Countdown(Arc<AtomicBool>),
+    Countdown(CountdownControl),
     Recording,
     Paused,
 }

@@ -121,6 +121,7 @@ export const api = {
     invoke<void>('record_start', { targetFilename: targetFilename ?? null }),
   recordStop: () => invoke<Recording>('record_stop'),
   recordCancel: () => invoke<void>('record_cancel'),
+  recordSkipCountdown: () => invoke<void>('record_skip_countdown'),
   recordPauseResume: () => invoke<void>('record_pause_resume'),
   recordCheckpoint: () => invoke<void>('record_checkpoint'),
   recordRollback: () => invoke<void>('record_rollback'),

@@ -163,6 +163,8 @@ export const translations = {
     'countdown.micOk': '🎤 Microphone Ready',
     'countdown.sysOk': '🔊 System Audio On',
     'countdown.noCursor': '🚫 Cursor Hidden',
+    'countdown.startNow': 'Start Now',
+    'countdown.startNowHint': 'Start recording immediately without waiting (Enter)',
     'countdown.cancel': 'Cancel Recording',
     'countdown.cancelHint': 'Cancel recording (ESC)',
 
@@ -360,6 +362,8 @@ export const translations = {
     'countdown.micOk': '🎤 麦克风已就绪',
     'countdown.sysOk': '🔊 系统声已开启',
     'countdown.noCursor': '🚫 不录鼠标',
+    'countdown.startNow': '立即开始',
+    'countdown.startNowHint': '跳过倒计时立即开始录屏（Enter）',
     'countdown.cancel': '取消录屏',
     'countdown.cancelHint': '取消录屏（ESC）',
 
